@@ -1,6 +1,6 @@
 # Transformer ses vidéos Instagram sauvegardées en base de données interrogeable
 
-*Tuto complet, testé sur Windows 11. Zéro connaissance en code requise. Coût : 0 € si tu as déjà un abonnement Claude.*
+*Tuto complet, testé sur macOS (Sonoma/Sequoia). Zéro connaissance en code requise. Coût : 0 € si tu as déjà un abonnement Claude.*
 
 ---
 
@@ -23,8 +23,8 @@ La version de ce tuto ne coûte **rien de plus** qu'un abonnement Claude Pro, pa
 | Le montage d'origine | Ce qu'on utilise à la place | Coût |
 |---|---|---|
 | Hermes + clé API | **Claude Cowork** (inclus dans Pro) | 0 € |
-| Agent iMessage 24h/24 | **Un raccourci iPhone + une tâche planifiée** | 0 € |
-| Serveur allumé en permanence | **Ton PC, quand il est allumé** | 0 € |
+| Agent iMessage 24h/24 | **Un raccourci iPhone + une tâche planifiée (launchd)** | 0 € |
+| Serveur allumé en permanence | **Ton Mac, quand il est allumé** | 0 € |
 | Transcription par API | **Whisper en local** | 0 € |
 | Téléchargement des vidéos | **yt-dlp** | 0 € |
 
@@ -34,65 +34,81 @@ La version de ce tuto ne coûte **rien de plus** qu'un abonnement Claude Pro, pa
 
 ## Ce qu'il te faut
 
-- Un PC Windows
+- Un Mac (Apple Silicon ou Intel)
 - Un abonnement **Claude Pro**
-- **Firefox** (et non Chrome — l'explication est plus bas, c'est important)
+- **Homebrew**, le gestionnaire de paquets de macOS
 - Un iPhone, pour la partie « envoyer depuis son téléphone » (facultatif)
 
 ---
 
 ## Étape 1 — Installer les outils
 
-Ouvre **PowerShell** (touche Windows, puis tape « powershell ») et colle ces commandes **une par une**, en appuyant sur Entrée entre chaque.
+Ouvre **Terminal** (Cmd+Espace, tape « terminal », Entrée).
+
+### 1.1 — Homebrew
+
+Si Homebrew n'est pas déjà installé, colle ceci et suis les instructions à l'écran (il te demandera ton mot de passe Mac) :
 
 ```
-winget install Python.Python.3.12
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
 
-```
-pip install yt-dlp faster-whisper gallery-dl
-```
+### 1.2 — Python et ffmpeg
 
 ```
-winget install Gyan.FFmpeg
+brew install python@3.12 ffmpeg
 ```
 
-**Ferme complètement PowerShell et rouvre-le.** Sans ça, Windows ne trouvera pas les nouveaux programmes.
+### 1.3 — Environnement virtuel et paquets Python
 
-Vérifie que tout répond :
+Un environnement virtuel isole les dépendances du projet — ça évite les conflits avec d'autres outils installés sur ton Mac. C'est la manière recommandée depuis Python 3.12.
 
 ```
-python -m yt_dlp --version
+mkdir -p "$HOME/Vault"
+cd "$HOME/Vault"
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+> **`(venv)` s'affiche dans ton Terminal ?** C'est normal — ça signifie que l'environnement virtuel est actif. **Tu devras relancer `source "$HOME/Vault/.venv/bin/activate"` à chaque nouvelle session Terminal** avant d'utiliser les scripts.
+
+> **Des lignes rouges pendant `pip install` ?** C'est souvent sans conséquence. Tant que tu lis `Successfully installed` à la fin, tout va bien. Si l'installation échoue, essaie `pip install --upgrade pip` puis relance.
+
+### 1.4 — Vérification
+
+```
+python3 -m yt_dlp --version
 ```
 
 ```
 ffmpeg -version
 ```
 
-Le premier affiche une date, le second un pavé de texte. Si l'un des deux dit « commande introuvable », l'installation n'est pas passée — reprends-la avant d'aller plus loin.
+Le premier affiche une date, le second un pavé de texte. Si l'un des deux dit « command not found », l'installation n'est pas passée — reprends-la avant d'aller plus loin.
 
-> **Des lignes rouges pendant l'installation ?** C'est normal. `pip` signale souvent des conflits de version avec d'autres programmes déjà présents. Tant que tu lis `Successfully installed` à la fin, tout va bien.
+> **La première fois que tu lances `ffmpeg` ou `python3`, macOS peut afficher une alerte Gatekeeper** (« ne peut pas être ouvert car il provient d'un développeur non identifié »). Comme ils viennent de Homebrew, ce n'est normalement pas le cas — mais si ça arrive, va dans **Réglages Système → Confidentialité et sécurité** et clique sur « Ouvrir quand même ».
 
 ---
 
-## Étape 2 — Se connecter à Instagram… avec Firefox
+## Étape 2 — Se connecter à Instagram
 
-C'est **le** piège du projet, et celui qui fait abandonner la plupart des gens.
+yt-dlp a besoin d'emprunter le cookie de connexion de ton navigateur pour accéder aux Reels.
 
-Instagram refuse de montrer ses Reels à qui n'est pas connecté. Le script doit donc emprunter le cookie de connexion de ton navigateur. Sauf que **depuis Chrome 127, Google chiffre ses cookies d'une façon que yt-dlp ne sait pas déchiffrer sous Windows**. Tu obtiens l'erreur `Failed to decrypt with DPAPI`, et absolument rien ne fonctionne.
+Sur macOS, **Chrome et Firefox fonctionnent tous les deux**, contrairement à Windows où Chrome est bloqué par un chiffrement (`DPAPI`) que yt-dlp ne sait pas déchiffrer. Ici, le seul inconvénient de Chrome est que **macOS demandera ton mot de passe de session (Trousseau d'accès) à chaque lecture des cookies** — gênant pour un script qui doit tourner seul la nuit.
 
-Il n'y a pas de contournement côté Chrome. La solution :
+**Recommandation : utilise Firefox**, qui ne stocke pas ses cookies dans le Trousseau et ne demande donc rien.
 
 ```
-winget install Mozilla.Firefox
+brew install --cask firefox
 ```
 
-Ouvre Firefox, va sur **instagram.com**, connecte-toi, puis **ferme complètement Firefox** — Windows verrouille le fichier de cookies tant que le navigateur tourne.
+Ouvre Firefox, va sur **instagram.com**, connecte-toi, puis **ferme complètement Firefox** (Cmd+Q, pas juste la fenêtre) — macOS verrouille le fichier de cookies tant que le navigateur tourne.
 
 Teste avant d'aller plus loin :
 
 ```
-python -m yt_dlp --cookies-from-browser firefox --dump-json --skip-download "https://www.instagram.com/reel/UN_REEL_QUELCONQUE/"
+python3 -m yt_dlp --cookies-from-browser firefox --dump-json --skip-download "https://www.instagram.com/reel/UN_REEL_QUELCONQUE/"
 ```
 
 Un déluge de texte illisible = c'est gagné. Une erreur = inutile de continuer, il faut régler ça d'abord.
@@ -116,7 +132,7 @@ Deux fichiers t'intéressent :
 
 ## Étape 4 — Le script de récolte
 
-Crée un dossier `Vault` dans ton profil utilisateur et places-y **`ingest.py`** (lien de téléchargement en bas de page).
+Crée un dossier `Vault` dans ton dossier personnel et places-y **`ingest.py`** (lien de téléchargement en bas de page).
 
 Ce qu'il fait, pour chaque lien :
 
@@ -129,14 +145,17 @@ Ce qu'il fait, pour chaque lien :
 **Commence par 10 vidéos**, jamais par la totalité :
 
 ```
-cd "$HOME\Vault"
+cd "$HOME/Vault"
+source .venv/bin/activate
 ```
 
 ```
-python ingest.py "CHEMIN\VERS\saved_posts.json" --vault "$HOME\Vault" --cookies firefox --limite 10
+python3 ingest.py "CHEMIN/VERS/saved_posts.json" --vault "$HOME/Vault" --cookies firefox --limite 10
 ```
 
 Le premier lancement télécharge le modèle Whisper (500 Mo, une seule fois) — plusieurs minutes de silence, c'est normal.
+
+> **Terminal te demande l'accès à un dossier (Téléchargements, Documents…) ?** C'est la protection « Accès complet au disque » / permissions par dossier de macOS. Autorise l'accès, sinon `ingest.py` ne pourra ni lire ton export ni écrire dans `Vault`. Tu peux gérer ça a posteriori dans **Réglages Système → Confidentialité et sécurité → Fichiers et dossiers**.
 
 Ouvre ensuite une fiche dans `raw/` et **lis la section « Transcription audio »**. C'est le moment décisif :
 
@@ -153,11 +172,7 @@ Si le test est concluant, lance tout en retirant `--limite 10`. Compter **20 à 
 
 À ce stade, tu as des centaines de fiches brutes, longues et brouillonnes. Il faut les condenser.
 
-Installe **Claude Desktop** depuis **claude.ai/download** — surtout pas depuis le Microsoft Store, les versions tierces ne gèrent pas Cowork. Sous Windows, Cowork exige la fonctionnalité « Plateforme de machine virtuelle » ; si l'application refuse de l'ouvrir, lance ceci dans un terminal **administrateur**, puis redémarre :
-
-```
-Enable-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -All
-```
+Installe **Claude Desktop** depuis **claude.ai/download** (choisis la version macOS) — surtout pas depuis l'App Store, les versions tierces ne gèrent pas Cowork correctement. Cowork sur Mac s'appuie sur le framework de virtualisation natif d'Apple : il n'y a **aucune fonctionnalité système à activer manuellement** (contrairement à Windows, où il faut activer « Plateforme de machine virtuelle »). Si Cowork refuse de démarrer, vérifie simplement que Claude Desktop est à jour et que macOS l'autorise dans **Réglages Système → Confidentialité et sécurité**.
 
 Ouvre Cowork, donne-lui le dossier `Vault`, et colle cette consigne :
 
@@ -204,102 +219,181 @@ Réponds ensuite **« continue »** à la fin de chaque lot. Compter une dizaine
 
 ## Étape 6 — Une page pour consulter
 
-Demande à Cowork :
+Le script **`generate_vault.py`** (à la racine du projet) lit `Vault/index.md` et écrit `Vault/vault.html` : une page autonome avec recherche instantanée, filtres par thème et liens cliquables, qui fonctionne hors ligne et sans consommer une miette de quota.
+
+Lance-le depuis le Terminal :
 
 ```
-Crée une page `vault.html` à la racine du Vault. Contraintes :
-
-- un seul fichier, sans dépendance externe, qui marche hors ligne
-- les données lues depuis index.md et intégrées directement dans le fichier
-- une barre de recherche qui filtre en direct sur le titre, le contenu et l'auteur
-- des boutons de filtre par thème, avec le nombre d'entrées sur chacun
-- chaque entrée affiche titre, thèmes, résumé, et un lien cliquable vers le post
-- lisible sur téléphone aussi
-
-Crée aussi le script qui régénère cette page à partir de index.md.
+cd "$HOME/Documents/reels-vault"   # ou le dossier où tu as cloné le projet
+source Vault/.venv/bin/activate 2>/dev/null || source .venv/bin/activate
+python3 generate_vault.py
 ```
 
-Tu obtiens une page à ouvrir d'un double-clic : recherche instantanée, filtres, hors ligne, et **sans consommer une miette de quota**. C'est ce que tu utiliseras au quotidien.
+Il affiche le nombre d'entrées générées et le chemin de sortie :
+
+```
+vault.html regenere avec 247 entrees -> /Users/toi/Documents/reels-vault/Vault/vault.html
+```
+
+Ouvre ensuite `Vault/vault.html` d'un double-clic dans le Finder. **C'est ce que tu utiliseras au quotidien.**
+
+> À chaque fois que `index.md` est mis à jour (après une session d'indexation dans Cowork), relance `python3 generate_vault.py` pour regénérer la page. Tu peux aussi demander à Cowork de le faire automatiquement :
+
+```
+Après toute modification de index.md, exécute generate_vault.py pour régénérer vault.html.
+```
 
 ---
 
 ## Étape 7 — Envoyer une vidéo depuis son téléphone
 
-L'idée : ton téléphone dépose le lien dans un fichier, ton PC le traite tout seul.
+L'idée : tu envoies le lien à un bot Telegram depuis ton téléphone. Quand ton Mac se réveille, il interroge le bot, récupère les URLs en attente et les ingère. Les liens s'accumulent côté Telegram même si ton Mac est éteint plusieurs jours — rien n'est perdu.
 
-### Le raccourci iPhone
+### 7.1 — Créer le bot Telegram (5 min, une seule fois)
+
+Dans l'app Telegram, ouvre une conversation avec **@BotFather** et envoie :
+
+```
+/newbot
+```
+
+Suis les instructions, choisis un nom et un identifiant (ex. `monvault_bot`). BotFather te donne un **token** au format `123456789:ABCdef…` — **note-le**.
+
+Envoie ensuite `/start` à ton nouveau bot pour l'initialiser.
+
+### 7.2 — Récupérer ton chat_id
+
+Depuis n'importe quel navigateur, remplace `<TON_TOKEN>` et ouvre cette URL :
+
+```
+https://api.telegram.org/bot<TON_TOKEN>/getUpdates
+```
+
+Dans la réponse JSON, trouve `"chat":{"id":XXXXXXXX}` — c'est ton **chat_id**. Si la réponse est vide (`"result":[]`), envoie d'abord un message quelconque à ton bot, puis recharge la page.
+
+### 7.3 — Créer le fichier `.env`
+
+```
+cat > "$HOME/Vault/.env" << 'EOF'
+TELEGRAM_TOKEN=REMPLACE_PAR_TON_TOKEN
+TELEGRAM_CHAT_ID=REMPLACE_PAR_TON_CHAT_ID
+EOF
+```
+
+**Remplace les deux valeurs** par ton vrai token et ton vrai chat_id. Ce fichier est lu par `telegram_inbox.py` à chaque exécution.
+
+> **Sécurité :** `.env` est listé dans `.gitignore` — il ne sera jamais poussé sur GitHub. Ne le déplace pas hors du Vault et ne le partage pas. Si le token fuite, régénère-le via `/revoke` chez @BotFather.
+
+### 7.4 — Le raccourci iPhone
 
 Dans l'app **Raccourcis** :
 
 1. **+** en haut à droite
-2. Ajoute l'action **« Ajouter au fichier texte »**
-3. Dans le champ à côté de « Ajouter à la suite », choisis la variable **Entrée du raccourci**
-4. Dans **« Chemin du fichier »**, tape simplement `inbox.txt`
-5. Active **« Créer une nouvelle ligne »**
-6. Ouvre les détails (icône **ⓘ**) → active **« Afficher dans la feuille de partage »**, et limite les types acceptés à **URL**
+2. Ajoute l'action **« Obtenir le contenu de l'URL »**
+3. Dans le champ URL, tape :
+   ```
+   https://api.telegram.org/bot<TON_TOKEN>/sendMessage
+   ```
+4. Passe la méthode en **POST**
+5. Dans **Corps de la requête**, choisis **JSON** et ajoute deux champs :
+   - `chat_id` → ta valeur de chat_id (nombre, sans guillemets)
+   - `text` → la variable magique **Entrée du raccourci**
+6. Ouvre les détails (**ⓘ**) → active **« Afficher dans la feuille de partage »**, type accepté : **URL**
 7. Nomme-le **« Envoyer au Vault »**
 
-À l'usage : sur un Reel, **Partager → Plus → Envoyer au Vault**. Ça marche aussi depuis TikTok, sans rien changer.
+À l'usage : sur un Reel, **Partager → Plus → Envoyer au Vault**. Ça marche aussi depuis TikTok sans rien changer.
 
-> **N'essaie pas de passer par OneDrive.** Il se monte en **lecture seule** dans le sélecteur de fichiers d'iOS : le raccourci ne pourra jamais y écrire. Laisse le réglage sur `Shortcuts` et tape juste `inbox.txt` — le fichier se crée tout seul dans iCloud au premier envoi.
-
-### Côté PC
-
-Installe iCloud pour Windows :
+Teste en envoyant un vrai lien depuis ton téléphone, puis vérifie sur Mac :
 
 ```
-winget install Apple.iCloud
+curl "https://api.telegram.org/bot<TON_TOKEN>/getUpdates"
 ```
 
-**Ouvre l'application, connecte-toi avec ton identifiant Apple, et coche iCloud Drive.** L'installation seule ne suffit pas.
+Le lien doit apparaître dans `"text"` d'un message.
 
-Fais un premier envoi depuis ton téléphone, puis localise le fichier :
+### 7.5 — L'automatisation
 
-```
-Get-ChildItem "$HOME\iCloudDrive" -Recurse -Filter "inbox.txt" | Select-Object FullName
-```
-
-Le chemin ressemblera à `...\iCloudDrive\iCloud~is~workflow~my~workflows\inbox.txt`.
-
-> **Fais un clic droit sur ce fichier → « Toujours conserver sur cet appareil ».** Sans ça, iCloud le garde dans le nuage et ton script lira une version périmée. C'est la cause n°1 des « ça ne marche plus ».
-
-### L'automatisation
-
-Crée le lanceur. **Remplace `CHEMIN_TROUVE_CI_DESSUS` par le chemin exact que la commande précédente t'a affiché**, puis colle le tout en une seule ligne :
+#### Créer `inbox.sh`
 
 ```
-Set-Content "$HOME\Vault\inbox.bat" -Encoding ASCII -Value '@echo off', 'cd /d "%USERPROFILE%\Vault"', 'python ingest.py "CHEMIN_TROUVE_CI_DESSUS" --vault "%USERPROFILE%\Vault" --cookies firefox'
+cat > "$HOME/Vault/inbox.sh" << 'EOF'
+#!/bin/zsh
+cd "$HOME/Vault"
+source .venv/bin/activate
+python3 telegram_inbox.py --vault "$HOME/Vault" --cookies firefox
+EOF
+chmod +x "$HOME/Vault/inbox.sh"
 ```
 
-Vérifie le résultat avant de continuer :
+#### Utiliser `inbox.sh` manuellement
+
+Tu peux lancer l'ingestion à tout moment depuis le Terminal :
 
 ```
-Get-Content "$HOME\Vault\inbox.bat"
+"$HOME/Vault/inbox.sh"
 ```
 
-Puis programme-le, une ligne à la fois :
+Le script affiche une ligne par URL traitée et indique le nombre de réussites/échecs à la fin. Si aucune nouvelle URL n'attend dans Telegram, il s'arrête immédiatement sans rien faire.
+
+Pour voir les logs de la dernière exécution (automatique ou manuelle) :
 
 ```
-$a = New-ScheduledTaskAction -Execute "$HOME\Vault\inbox.bat"
+cat "$HOME/Vault/inbox.log"
 ```
 
-```
-$t = New-ScheduledTaskTrigger -Daily -At 6pm
-```
+Pour suivre les logs en temps réel pendant une exécution :
 
 ```
-Register-ScheduledTask -TaskName "Vault Inbox" -Action $a -Trigger $t
+tail -f "$HOME/Vault/inbox.log"
 ```
 
-```
-$s = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -WakeToRun
-```
+#### Automatiser avec launchd
+
+Programme l'exécution tous les jours à 18h :
 
 ```
-Set-ScheduledTask -TaskName "Vault Inbox" -Settings $s
+mkdir -p "$HOME/Library/LaunchAgents"
+cat > "$HOME/Library/LaunchAgents/com.vault.inbox.plist" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.vault.inbox</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$HOME/Vault/inbox.sh</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>18</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>$HOME/Vault/inbox.log</string>
+    <key>StandardErrorPath</key>
+    <string>$HOME/Vault/inbox.log</string>
+</dict>
+</plist>
+EOF
 ```
 
-`StartWhenAvailable` rattrape les exécutions manquées : si ton PC est éteint à l'heure dite, la tâche se lancera au prochain démarrage.
+Puis charge-la :
+
+```
+launchctl load "$HOME/Library/LaunchAgents/com.vault.inbox.plist"
+```
+
+| Commande | Ce qu'elle fait |
+|---|---|
+| `launchctl load …plist` | Enregistre la tâche (à faire une seule fois) |
+| `launchctl start com.vault.inbox` | Lance immédiatement, sans attendre 18h |
+| `launchctl stop com.vault.inbox` | Arrête une exécution en cours |
+| `launchctl unload …plist` | Désactive la tâche définitivement |
+
+> `launchd` rattrape les exécutions manquées au prochain démarrage/réveil. Les liens envoyés quand le Mac est éteint ne sont pas perdus — ils attendent côté Telegram.
 
 Dernière brique, dans Cowork :
 
@@ -312,7 +406,7 @@ Crée une tâche récurrente quotidienne à 8h :
 S'il n'y a aucune nouvelle fiche, ne rien faire.
 ```
 
-**La boucle est bouclée** : tu partages depuis ton lit, ton PC transcrit le soir, l'index se met à jour le lendemain matin.
+**La boucle est bouclée** : tu partages depuis ton lit, ton Mac transcrit le soir, l'index se met à jour le lendemain matin.
 
 ---
 
@@ -349,7 +443,7 @@ C'est l'image qui a fait circuler le projet : un nuage de points reliés, chaque
 Installe **Obsidian** (gratuit) :
 
 ```
-winget install Obsidian.Obsidian
+brew install --cask obsidian
 ```
 
 Au lancement, choisis **« Ouvrir un dossier comme coffre »** et sélectionne ton `Vault` — pas le coffre de démonstration créé par défaut.
@@ -357,10 +451,11 @@ Au lancement, choisis **« Ouvrir un dossier comme coffre »** et sélectionne t
 Lance ensuite **`graphe.py`** (lien en bas de page), qui ajoute les liens `[[Thème]]` à chaque fiche et crée une note par thème :
 
 ```
-python graphe.py --vault "$HOME\Vault"
+cd "$HOME/Vault" && source .venv/bin/activate
+python3 graphe.py --vault "$HOME/Vault"
 ```
 
-Puis `Ctrl+G` dans Obsidian. Monte **Repel** dans les réglages « Forces » pour aérer, et crée un groupe `path:themes` en couleur vive pour faire ressortir les thèmes.
+Puis `Cmd+G` dans Obsidian. Monte **Repel** dans les réglages « Forces » pour aérer, et crée un groupe `path:themes` en couleur vive pour faire ressortir les thèmes.
 
 **Sois honnête avec toi-même** : c'est superbe, ça fait un excellent visuel, mais on s'en sert peu au quotidien. La page `vault.html` avec ses filtres est bien plus efficace pour retrouver quelque chose. Le graphe, c'est l'affiche du projet.
 
@@ -368,10 +463,10 @@ Puis `Ctrl+G` dans Obsidian. Monte **Repel** dans les réglages « Forces » pou
 
 ## Les cinq pièges, résumés
 
-1. **Chrome ne fonctionne pas.** Erreur `DPAPI`, sans solution. Installe Firefox.
-2. **Ferme ton navigateur** avant de lancer le script. Windows verrouille le fichier de cookies.
-3. **OneDrive est en lecture seule** sur iPhone. Passe par iCloud pour la boîte de réception.
-4. **iCloud ne télécharge pas les fichiers tout seul.** Clic droit → « Toujours conserver sur cet appareil ».
+1. **Chrome demande le Trousseau d'accès à chaque lecture des cookies.** Gênant pour l'automatisation : utilise Firefox, plus simple pour un script qui tourne seul.
+2. **Ferme complètement ton navigateur (Cmd+Q)** avant de lancer le script. macOS verrouille le fichier de cookies tant qu'il tourne.
+3. **Ne partage jamais ton token Telegram.** Il donne le contrôle total de ton bot. Ne le mets pas dans un dépôt Git. Si tu le perds ou le divulgues, régénère-le via `/revoke` chez BotFather.
+4. **`launchd` ne réveille pas ton Mac tout seul.** Programme un réveil automatique si l'heure prévue tombe pendant que le Mac dort.
 5. **Range ton export ailleurs que dans Téléchargements.** Il finira supprimé au pire moment.
 
 ---
@@ -391,6 +486,21 @@ Puis `Ctrl+G` dans Obsidian. Monte **Repel** dans les réglages « Forces » pou
 ## Les fichiers
 
 - **`ingest.py`** — récolte et transcription
+- **`generate_vault.py`** — relit `Vault/index.md` et régénère `Vault/vault.html`
+- **`telegram_inbox.py`** — récupère les URLs depuis le bot Telegram et appelle `ingest.py`
 - **`graphe.py`** — création des liens pour Obsidian
+- **`requirements.txt`** — dépendances Python (`pip install -r requirements.txt`)
+- **`.env.example`** — modèle du fichier de configuration Telegram (copier en `.env` et remplir)
 
-*Tuto rédigé après un montage réel, du premier `winget install` jusqu'au circuit de voyage. Les pièges décrits ont tous été rencontrés pour de vrai.*
+*Tuto rédigé après un montage réel, du premier `brew install` jusqu'au circuit de voyage. Les pièges décrits ont tous été rencontrés pour de vrai.*
+
+
+
+##Commandes utiles
+
+- **`make install`** - Installe les dépendances Python
+- **`make run`** - Lance le script d'ingestion
+- **`make generate`** - Génère le vault HTML
+- **`make telegram`** - Lance le bot Telegram
+- **`make graph`** - Crée les liens pour Obsidian
+- **`make ingest FILE="./your_instagram_activity/saved/saved_posts.json" LIMITE=100 COOKIES=firefox`** - Traite un fichier JSON spécifique avec limite de 100 posts et cookies Firefox

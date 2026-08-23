@@ -1,0 +1,9 @@
+your_instagram_activity/
+path/
+.env
+telegram_offset.txt
+__pycache__/
+.venv/
+*.pyc
+.DS_Store
+Vault/

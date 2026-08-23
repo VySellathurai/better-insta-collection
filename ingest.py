@@ -12,19 +12,23 @@ Le script reprend là où il s'est arrêté : on peut le couper (Ctrl+C) et le
 relancer sans retraiter ce qui est déjà fait.
 
 Usage :
-    python ingest.py mes_liens.txt
-    python ingest.py saved_posts.json --cookies chrome
-    python ingest.py liens.txt --limite 20        (pour tester sur 20 vidéos)
+    python3 ingest.py mes_liens.txt
+    python3 ingest.py saved_posts.json --cookies firefox
+    python3 ingest.py liens.txt --limite 20        (pour tester sur 20 vidéos)
 """
+
+from __future__ import annotations
 
 import argparse
 import json
+import logging
 import re
 import subprocess
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 # ---------------------------------------------------------------- configuration
 
@@ -40,14 +44,12 @@ MOTIF_LIEN = re.compile(
     r"https?://(?:www\.|vm\.|vt\.)?(?:tiktok\.com|instagram\.com)/[^\s\"'<>,\)\]]+"
 )
 
+logger = logging.getLogger(__name__)
+
 
 # ---------------------------------------------------------------- utilitaires
 
-def log(message):
-    print(f"[{datetime.now():%H:%M:%S}] {message}", flush=True)
-
-
-def verifier_outils():
+def verifier_outils() -> None:
     """Verifie que yt-dlp et ffmpeg repondent avant de commencer."""
     manquants = []
 
@@ -59,20 +61,21 @@ def verifier_outils():
     try:
         subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
     except (OSError, subprocess.CalledProcessError):
-        manquants.append("ffmpeg  ->  winget install Gyan.FFmpeg  (puis rouvrir PowerShell)")
+        manquants.append("ffmpeg  ->  brew install ffmpeg")
 
     if manquants:
-        log("ERREUR : outil(s) manquant(s)")
+        logger.error("outil(s) manquant(s)")
         for m in manquants:
-            log(f"   {m}")
+            logger.error("   %s", m)
         sys.exit(1)
 
 
-def extraire_liens(chemin):
+def extraire_liens(chemin: str | Path) -> list[str]:
     """Récupère toutes les URLs TikTok/Instagram d'un fichier, quel que soit
     son format (txt, csv, json d'export). Les doublons sont supprimés."""
     texte = Path(chemin).read_text(encoding="utf-8", errors="ignore")
-    liens, vus = [], set()
+    liens: list[str] = []
+    vus: set[str] = set()
     for lien in MOTIF_LIEN.findall(texte):
         lien = lien.rstrip(".,;")
         if lien not in vus:
@@ -81,7 +84,7 @@ def extraire_liens(chemin):
     return liens
 
 
-def options_cookies(cookies):
+def options_cookies(cookies: str | None) -> list[str]:
     """--cookies accepte soit un nom de navigateur (firefox, edge...),
     soit le chemin d'un fichier cookies.txt exporte depuis le navigateur."""
     if not cookies:
@@ -91,19 +94,19 @@ def options_cookies(cookies):
     return ["--cookies-from-browser", cookies]
 
 
-def charger_journal(chemin):
+def charger_journal(chemin: Path) -> dict[str, Any]:
     if chemin.exists():
-        return json.loads(chemin.read_text(encoding="utf-8"))
+        return json.loads(chemin.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
     return {}
 
 
-def sauver_journal(chemin, journal):
+def sauver_journal(chemin: Path, journal: dict[str, Any]) -> None:
     chemin.write_text(
         json.dumps(journal, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
 
-def identifiant(lien):
+def identifiant(lien: str) -> str:
     """Un nom de fichier court et sûr, dérivé de l'URL."""
     fin = lien.rstrip("/").split("/")[-1].split("?")[0]
     fin = re.sub(r"[^A-Za-z0-9_-]", "", fin)[:40]
@@ -113,17 +116,19 @@ def identifiant(lien):
 
 # ---------------------------------------------------------------- étapes
 
-def recuperer_metadonnees(lien, cookies):
+def recuperer_metadonnees(lien: str, cookies: str | None) -> dict[str, Any]:
     commande = YTDLP + ["--dump-json", "--no-warnings", "--skip-download"]
     commande += options_cookies(cookies)
     commande.append(lien)
     resultat = subprocess.run(commande, capture_output=True, text=True, timeout=120)
     if resultat.returncode != 0:
         raise RuntimeError((resultat.stderr or "yt-dlp a échoué").strip()[:300])
-    return json.loads(resultat.stdout.splitlines()[0])
+    return json.loads(resultat.stdout.splitlines()[0])  # type: ignore[no-any-return]
 
 
-def telecharger_media(lien, dossier, nom, cookies):
+def telecharger_media(
+    lien: str, dossier: Path, nom: str, cookies: str | None
+) -> tuple[Path | None, Path | None]:
     """Télécharge l'audio (m4a) et la vidéo en basse qualité (pour les images)."""
     audio = dossier / f"{nom}.m4a"
     video = dossier / f"{nom}.mp4"
@@ -144,14 +149,16 @@ def telecharger_media(lien, dossier, nom, cookies):
             video if video.exists() else None)
 
 
-def transcrire(audio, modele):
+def transcrire(audio: Path | None, modele: Any) -> str:
     if audio is None:
         return ""
     segments, _ = modele.transcribe(str(audio), vad_filter=True)
     return " ".join(s.text.strip() for s in segments).strip()
 
 
-def telecharger_carrousel(lien, dossier_images, nom, cookies):
+def telecharger_carrousel(
+    lien: str, dossier_images: Path, nom: str, cookies: str | None
+) -> tuple[list[Path], str]:
     """Post Instagram sans vidéo : on télécharge les images du carrousel.
 
     Sur un carrousel, ce sont les images QUI SONT le contenu (les slides
@@ -184,7 +191,9 @@ def telecharger_carrousel(lien, dossier_images, nom, cookies):
     return images, legende
 
 
-def extraire_images(video, dossier_images, nom, duree):
+def extraire_images(
+    video: Path | None, dossier_images: Path, nom: str, duree: float | None
+) -> list[Path]:
     """Prend NB_IMAGES captures réparties dans la vidéo."""
     if video is None or not duree:
         return []
@@ -203,7 +212,16 @@ def extraire_images(video, dossier_images, nom, duree):
     return chemins
 
 
-def ecrire_fiche(dossier, vault, nom, lien, meta, transcription, images, genre):
+def ecrire_fiche(
+    dossier: Path,
+    vault: Path,
+    nom: str,
+    lien: str,
+    meta: dict[str, Any],
+    transcription: str,
+    images: list[Path],
+    genre: str,
+) -> None:
     liens_images = []
     for p in images:
         try:
@@ -237,7 +255,14 @@ statut: brut
 
 # ---------------------------------------------------------------- programme
 
-def main():
+def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
+        stream=sys.stdout,
+    )
+
     parseur = argparse.ArgumentParser()
     parseur.add_argument("fichier", help="fichier contenant les liens")
     parseur.add_argument("--vault", default=str(VAULT))
@@ -265,18 +290,18 @@ def main():
     if args.limite:
         a_faire = a_faire[: args.limite]
 
-    log(f"{len(liens)} liens trouvés, {len(a_faire)} à traiter.")
+    logger.info("%d liens trouvés, %d à traiter.", len(liens), len(a_faire))
     if not a_faire:
         return
 
-    log(f"Chargement du modèle Whisper « {args.modele} » (long la 1re fois)...")
+    logger.info("Chargement du modèle Whisper « %s » (long la 1re fois)...", args.modele)
     from faster_whisper import WhisperModel
     modele = WhisperModel(args.modele, device="cpu", compute_type="int8")
 
     reussites = echecs = 0
     for numero, lien in enumerate(a_faire, 1):
         nom = identifiant(lien)
-        log(f"[{numero}/{len(a_faire)}] {lien}")
+        logger.info("[%d/%d] %s", numero, len(a_faire), lien)
         try:
             erreur_meta = ""
             try:
@@ -316,17 +341,17 @@ def main():
             journal[lien] = {"statut": "ok", "fiche": f"{nom}.md"}
             reussites += 1
         except Exception as erreur:  # noqa: BLE001 — on continue quoi qu'il arrive
-            log(f"    échec : {erreur}")
+            logger.warning("échec : %s", erreur)
             journal[lien] = {"statut": "echec", "erreur": str(erreur)[:300]}
             echecs += 1
 
         sauver_journal(chemin_journal, journal)
         time.sleep(PAUSE_ENTRE_VIDEOS)
 
-    log(f"Terminé — {reussites} réussites, {echecs} échecs.")
-    log(f"Fiches disponibles dans : {dossier_raw}")
+    logger.info("Terminé — %d réussites, %d échecs.", reussites, echecs)
+    logger.info("Fiches disponibles dans : %s", dossier_raw)
     if echecs:
-        log("Relance le script pour retenter uniquement les échecs.")
+        logger.info("Relance le script pour retenter uniquement les échecs.")
 
 
 if __name__ == "__main__":

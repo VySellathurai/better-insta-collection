@@ -41,7 +41,7 @@ YTDLP = [sys.executable, "-m", "yt_dlp"]
 GALLERYDL = [sys.executable, "-m", "gallery_dl"]
 
 MOTIF_LIEN = re.compile(
-    r"https?://(?:www\.|vm\.|vt\.)?(?:tiktok\.com|instagram\.com)/[^\s\"'<>,\)\]]+"
+    r"https?://(?:www\.)?instagram\.com/[^\s\"'<>,\)\]]+"
 )
 
 logger = logging.getLogger(__name__)
@@ -151,9 +151,18 @@ def telecharger_media(
 
 def transcrire(audio: Path | None, modele: Any) -> str:
     if audio is None:
+        logger.debug("Pas de fichier audio — transcription ignorée.")
         return ""
-    segments, _ = modele.transcribe(str(audio), vad_filter=True)
-    return " ".join(s.text.strip() for s in segments).strip()
+    logger.info("  Transcription de %s...", audio.name)
+    segments, info = modele.transcribe(str(audio), vad_filter=True)
+    texte = " ".join(s.text.strip() for s in segments).strip()
+    logger.info(
+        "  Transcription terminée — langue : %s (%.0f%%), %d caractères.",
+        info.language,
+        info.language_probability * 100,
+        len(texte),
+    )
+    return texte
 
 
 def telecharger_carrousel(
@@ -209,6 +218,7 @@ def extraire_images(
         )
         if sortie.exists():
             chemins.append(sortie)
+            logger.info("  Image extraite : %s", sortie.name)
     return chemins
 
 
@@ -250,7 +260,9 @@ statut: brut
 ## Images
 {chr(10).join(liens_images) or "(aucune)"}
 """
-    (dossier / f"{nom}.md").write_text(contenu, encoding="utf-8")
+    fiche_path = dossier / f"{nom}.md"
+    fiche_path.write_text(contenu, encoding="utf-8")
+    logger.info("  Fiche écrite : %s", fiche_path.name)
 
 
 # ---------------------------------------------------------------- programme

@@ -426,6 +426,43 @@ Puis `Cmd+G` dans Obsidian. Monte **Repel** dans les réglages « Forces » pour
 
 ---
 
+## Bonus — Le backoffice (Postgres + Next.js)
+
+`gallery.html` suffit largement pour un usage perso. Mais le projet inclut aussi un **backoffice optionnel**, dans `src/backoffice/` : les mêmes données, rechargées dans une vraie base **Postgres** (via Docker) et servies par une petite app **Next.js** — même recherche, mêmes filtres par thème, plus une **API JSON en lecture seule** (`/api/posts`, `/api/posts/:slug`, `/api/themes`) si tu veux brancher un autre outil dessus un jour.
+
+Il ne touche jamais à `Vault/` : il ne fait que le *lire* pour remplir sa propre base, à la demande.
+
+Installe **Node.js** et **Docker Desktop** (gratuits), puis lance Docker Desktop une fois pour qu'il tourne en arrière-plan.
+
+```
+brew install node
+brew install --cask docker
+```
+
+Depuis la racine du projet, un seul démarrage suffit :
+
+```
+make bo-setup
+```
+
+Cette commande installe les dépendances Node, démarre Postgres, applique les migrations et charge tes données — à ne faire qu'une fois. Ensuite :
+
+```
+make bo-dev
+```
+
+Ouvre **http://localhost:3000**. Tu y retrouves la même page que `gallery.html`, mais servie depuis Postgres.
+
+**Après une session Digest**, une seule commande resynchronise `gallery.html` *et* Postgres :
+
+```
+make bo-refresh
+```
+
+> `make bo-db-down` arrête Postgres quand tu as fini — tes données restent sur le disque (volume Docker), rien n'est perdu, `make bo-db-up` les retrouve au prochain démarrage.
+
+---
+
 ## Les cinq pièges, résumés
 
 1. **Chrome demande le Trousseau d'accès à chaque lecture des cookies.** Gênant pour l'automatisation : utilise Firefox, plus simple pour un script qui tourne seul.
@@ -457,10 +494,11 @@ Puis `Cmd+G` dans Obsidian. Monte **Repel** dans les réglages « Forces » pour
 | **Publish** | `reels-publish` | — | `index.md` → `gallery.html` |
 | **Graph** *(bonus)* | `reels-graph` | — | Liens `[[Thème]]` pour Obsidian |
 | **Telegram** *(déclencheur)* | `reels-telegram` | API Telegram | Récupère les URLs, appelle Collect |
+| **Backoffice** *(bonus, optionnel)* | `make bo-setup` / `make bo-dev` | Next.js, Postgres, Docker | `index.md` + `raw/` → Postgres, page web + API JSON |
 
 > ⚠️ **Collect, Digest, Publish et Graph sont testés sur un vault réel.** Telegram a été porté vers la nouvelle structure du projet mais **pas encore vérifié en conditions réelles** depuis — teste-le prudemment (petit lot, vault de test) avant de t'y fier.
 
-Voir `schema.md` pour le détail du flux complet (diagrammes).
+Voir `schema.md` pour le détail du flux complet (diagrammes, modèle de données du backoffice).
 
 ## Les fichiers
 
@@ -470,6 +508,7 @@ Voir `schema.md` pour le détail du flux complet (diagrammes).
 - **`src/reels_vault/graph.py`** — création des liens pour Obsidian
 - **`src/reels_vault/telegram.py`** — récupère les URLs depuis le bot Telegram et appelle Collect
 - **`src/reels_vault/_ollama.py`** / **`_naming.py`** — code partagé entre les phases
+- **`src/backoffice/`** — backoffice optionnel (Next.js + Postgres) ; voir `src/backoffice/README.md` pour le détail
 - **`pyproject.toml`** — dépendances et commandes `reels-*` (`uv sync` pour installer)
 - **`.env.example`** — modèle du fichier de configuration Telegram (copier en `Vault/.env` et remplir)
 
@@ -485,3 +524,13 @@ Voir `schema.md` pour le détail du flux complet (diagrammes).
 - **`make graph`** — crée les liens Obsidian
 - **`make telegram`** — lance le bot Telegram (équivalent de `inbox.sh`)
 - **`make check`** — lint + typecheck (identique à la CI)
+
+Backoffice (`src/backoffice/`, optionnel) :
+
+- **`make bo-setup`** — première installation : dépendances, Postgres, migrations, chargement des données
+- **`make bo-dev`** — lance le backoffice sur http://localhost:3000
+- **`make bo-refresh`** — régénère `gallery.html` *et* recharge Postgres, en une commande
+- **`make bo-db-up`** / **`make bo-db-down`** — démarre / arrête Postgres (Docker)
+- **`make bo-check`** — lint + typecheck du backoffice
+
+`make help` liste toutes les commandes disponibles, avec leurs variables.

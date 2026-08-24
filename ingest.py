@@ -30,12 +30,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import requests
+
 # ---------------------------------------------------------------- configuration
 
 VAULT = Path.home() / "vault"          # modifiable avec --vault
 MODELE_WHISPER = "small"               # tiny / base / small / medium
 PAUSE_ENTRE_VIDEOS = 3                 # secondes, pour ne pas se faire bloquer
 NB_IMAGES = 3
+OLLAMA_URL = "http://localhost:11434/api/chat"
+DEFAULT_LLM_MODEL = "qwen2.5:7b"
 
 YTDLP = [sys.executable, "-m", "yt_dlp"]
 GALLERYDL = [sys.executable, "-m", "gallery_dl"]
@@ -222,6 +226,46 @@ def extraire_images(
     return chemins
 
 
+def extraire_tags(transcription: str, description: str, model: str) -> list[str]:
+    """Identifie 3 tags majeurs via Ollama à partir de la transcription (ou
+    description si pas de transcription). Retourne une liste vide si Ollama
+    n'est pas disponible ou si le contenu est trop pauvre."""
+    texte = transcription.strip() or description.strip()
+    if not texte:
+        return []
+
+    prompt = (
+        "Identifie exactement 3 tags courts en français qui catégorisent le mieux "
+        "ce contenu. Les tags doivent être généraux et réutilisables (ex: cuisine, "
+        "politique, voyage, finance, sport, technologie, humour...). "
+        "Réponds UNIQUEMENT avec du JSON valide : {\"tags\": [\"tag1\", \"tag2\", \"tag3\"]}\n\n"
+        f"Contenu :\n{texte[:1500]}"
+    )
+
+    try:
+        r = requests.post(
+            OLLAMA_URL,
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "stream": False,
+                "format": "json",
+                "options": {"temperature": 0.1},
+            },
+            timeout=60,
+        )
+        r.raise_for_status()
+        data = json.loads(r.json()["message"]["content"])
+        tags = data.get("tags", [])
+        return [str(t).strip().lower() for t in tags[:3] if str(t).strip()]
+    except requests.RequestException as e:
+        logger.warning("  Ollama indisponible, tags ignorés : %s", e)
+        return []
+    except (KeyError, json.JSONDecodeError, ValueError) as e:
+        logger.warning("  Réponse LLM invalide pour les tags : %s", e)
+        return []
+
+
 def ecrire_fiche(
     dossier: Path,
     vault: Path,
@@ -231,6 +275,7 @@ def ecrire_fiche(
     transcription: str,
     images: list[Path],
     genre: str,
+    tags: list[str],
 ) -> None:
     liens_images = []
     for p in images:
@@ -238,6 +283,8 @@ def ecrire_fiche(
             liens_images.append(f"- {p.relative_to(vault).as_posix()}")
         except ValueError:
             liens_images.append(f"- {p.name}")
+
+    tags_ligne = ", ".join(f"#{t.replace(' ', '-')}" for t in tags) if tags else "(non généré)"
 
     contenu = f"""---
 source: {lien}
@@ -247,6 +294,7 @@ auteur: {meta.get("uploader") or meta.get("channel") or "inconnu"}
 duree_s: {meta.get("duration") or ""}
 traite_le: {datetime.now():%Y-%m-%d}
 statut: brut
+tags: {", ".join(tags) if tags else ""}
 ---
 
 # {(meta.get("title") or nom)[:120]}
@@ -343,8 +391,11 @@ def main() -> None:
                 if legende and not meta.get("description"):
                     meta["description"] = legende
 
+            tags = extraire_tags(transcription, meta.get("description") or "",
+                                 DEFAULT_LLM_MODEL)
+
             ecrire_fiche(dossier_raw, vault, nom, lien, meta, transcription,
-                         images, genre)
+                         images, genre, tags)
 
             for fichier in (audio, video):
                 if fichier and fichier.exists():

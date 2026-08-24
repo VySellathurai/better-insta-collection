@@ -142,8 +142,8 @@ def verifier_ollama(model: str) -> None:
         sys.exit(1)
 
     modeles_dispos = [m["name"] for m in r.json().get("models", [])]
-    # Vérifie correspondance partielle (qwen2.5:7b == qwen2.5:7b ou qwen2.5:7b-instruct-q4...)
-    if not any(model in m or m.startswith(model.split(":")[0]) for m in modeles_dispos):
+    # Vérifie correspondance exacte ou variante taguée (qwen2.5:7b == qwen2.5:7b-instruct-q4...)
+    if not any(m == model or m.startswith(model + "-") for m in modeles_dispos):
         logger.error(
             "Modèle '%s' introuvable. Modèles disponibles : %s\n"
             "Installe-le avec : ollama pull %s",
@@ -179,12 +179,18 @@ def appeler_ollama(fiche_texte: str, model: str) -> dict[str, str]:
 
 # ── Formatage ─────────────────────────────────────────────────────────────────
 
+def _une_ligne(texte: str) -> str:
+    """Aplati un texte multi-lignes (le LLM peut renvoyer des \\n malgré le prompt)
+    pour rester compatible avec le format 1-ligne-par-champ d'index.md."""
+    return " ".join(texte.split())
+
+
 def formater_entree(url: str, champs: dict[str, str], tags: str) -> str:
     """Formate une entrée index.md à partir des champs extraits et des tags de la fiche."""
-    titre = champs.get("titre", "Sans titre").strip()
+    titre = _une_ligne(champs.get("titre", "Sans titre"))
     auteur = champs.get("auteur", "inconnu").strip()
     themes = tags.strip() or "(aucun thème identifiable)"
-    contenu = champs.get("contenu", "").strip()
+    contenu = _une_ligne(champs.get("contenu", ""))
     return (
         f"\n### {titre}\n"
         f"- lien : {url}\n"

@@ -257,11 +257,13 @@ def extraire_tags(transcription: str, description: str, model: str) -> list[str]
         r.raise_for_status()
         data = json.loads(r.json()["message"]["content"])
         tags = data.get("tags", [])
-        return [str(t).strip().lower() for t in tags[:3] if str(t).strip()]
+        if not isinstance(tags, list):
+            return []
+        return [t.strip().lower() for t in tags[:3] if isinstance(t, str) and t.strip()]
     except requests.RequestException as e:
         logger.warning("  Ollama indisponible, tags ignorés : %s", e)
         return []
-    except (KeyError, json.JSONDecodeError, ValueError) as e:
+    except (KeyError, TypeError, json.JSONDecodeError, ValueError) as e:
         logger.warning("  Réponse LLM invalide pour les tags : %s", e)
         return []
 
@@ -299,6 +301,9 @@ tags: {", ".join(tags) if tags else ""}
 
 # {(meta.get("title") or nom)[:120]}
 
+## Tags
+{tags_ligne}
+
 ## Description
 {(meta.get("description") or "").strip() or "(vide)"}
 
@@ -331,6 +336,8 @@ def main() -> None:
     parseur.add_argument("--limite", type=int, default=0,
                          help="ne traiter que les N premières vidéos")
     parseur.add_argument("--modele", default=MODELE_WHISPER)
+    parseur.add_argument("--model", default=DEFAULT_LLM_MODEL,
+                         help="modèle Ollama pour l'extraction des tags")
     args = parseur.parse_args()
 
     verifier_outils()
@@ -392,7 +399,7 @@ def main() -> None:
                     meta["description"] = legende
 
             tags = extraire_tags(transcription, meta.get("description") or "",
-                                 DEFAULT_LLM_MODEL)
+                                 args.model)
 
             ecrire_fiche(dossier_raw, vault, nom, lien, meta, transcription,
                          images, genre, tags)

@@ -5,9 +5,10 @@ FILE      ?=
 LLM_MODEL ?= qwen2.5:7b
 BATCH     ?= 25
 
-_cookies = $(if $(COOKIES),--cookies $(COOKIES),)
-_modele  = $(if $(MODELE),--modele $(MODELE),)
-_limite  = $(if $(LIMITE),--limite $(LIMITE),)
+_cookies   = $(if $(COOKIES),--cookies $(COOKIES),)
+_modele    = $(if $(MODELE),--modele $(MODELE),)
+_limite    = $(if $(LIMITE),--limite $(LIMITE),)
+_llmmodele = $(if $(LLM_MODEL),--model $(LLM_MODEL),)
 
 .DEFAULT_GOAL := help
 
@@ -68,7 +69,7 @@ ingest:
 ifndef FILE
 	$(error FILE is required — usage: make ingest FILE=links.txt)
 endif
-	uv run python ingest.py $(FILE) --vault $(VAULT) $(_cookies) $(_modele) $(_limite)
+	uv run python ingest.py $(FILE) --vault $(VAULT) $(_cookies) $(_modele) $(_limite) $(_llmmodele)
 
 index:
 	uv run python index_agent.py --vault $(VAULT) --model $(LLM_MODEL) --batch $(BATCH)

@@ -1,4 +1,0 @@
-yt-dlp
-faster-whisper
-gallery-dl
-requests

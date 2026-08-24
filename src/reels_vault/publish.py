@@ -1,31 +1,27 @@
 #!/usr/bin/env python3
 """
-generate_vault.py
+publish.py
 
-Regenere vault.html a partir de index.md.
+Regenere gallery.html a partir de index.md.
 
 Usage :
-    python3 generate_vault.py
+    reels-publish
+    reels-publish --vault ~/MonVault
 
-Le script lit Vault/index.md (format : entrees "### titre" suivies de lignes
+Le script lit <vault>/index.md (format : entrees "### titre" suivies de lignes
 "- lien :", "- auteur :", "- themes :", "- contenu :"), construit une liste
 d'entrees en JSON, et l'injecte dans un template HTML autonome (pas de
-dependance externe, fonctionne hors ligne) qui est ecrit dans Vault/vault.html.
+dependance externe, fonctionne hors ligne) qui est ecrit dans <vault>/gallery.html.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import sys
 from pathlib import Path
 from typing import Any
-
-ROOT = Path(__file__).resolve().parent
-VAULT_DIR = ROOT / "Vault"
-INDEX_PATH = VAULT_DIR / "index.md"
-RAW_DIR = VAULT_DIR / "raw"
-OUTPUT_PATH = VAULT_DIR / "vault.html"
 
 
 def parse_raw_images(raw_dir: Path) -> dict[str, list[str]]:
@@ -50,7 +46,9 @@ def parse_raw_images(raw_dir: Path) -> dict[str, list[str]]:
     return images_par_url
 
 
-def parse_index(text: str, images_par_url: dict[str, list[str]] | None = None) -> list[dict[str, Any]]:
+def parse_index(
+    text: str, images_par_url: dict[str, list[str]] | None = None
+) -> list[dict[str, Any]]:
     """Parse index.md en une liste de dicts {titre, lien, auteur, themes, contenu, images}."""
     images_par_url = images_par_url or {}
     entries: list[dict[str, Any]] = []
@@ -307,7 +305,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <div class="entries" id="entries"></div>
   <div class="no-results" id="no-results" style="display:none;">Aucune entrée ne correspond à cette recherche.</div>
 
-  <footer>Fichier autonome, généré par generate_vault.py — fonctionne hors ligne.</footer>
+  <footer>Fichier autonome, généré par reels-publish — fonctionne hors ligne.</footer>
 </div>
 
 <script>
@@ -436,12 +434,21 @@ renderEntries();
 
 
 def main() -> None:
-    if not INDEX_PATH.exists():
-        print("index.md introuvable a cote du script :", INDEX_PATH, file=sys.stderr)
+    parseur = argparse.ArgumentParser(description="Génère gallery.html à partir de index.md.")
+    parseur.add_argument("--vault", default="./Vault", help="dossier vault (défaut: ./Vault)")
+    args = parseur.parse_args()
+
+    vault_dir = Path(args.vault)
+    index_path = vault_dir / "index.md"
+    raw_dir = vault_dir / "raw"
+    output_path = vault_dir / "gallery.html"
+
+    if not index_path.exists():
+        print("index.md introuvable :", index_path, file=sys.stderr)
         sys.exit(1)
 
-    text = INDEX_PATH.read_text(encoding="utf-8")
-    images_par_url = parse_raw_images(RAW_DIR)
+    text = index_path.read_text(encoding="utf-8")
+    images_par_url = parse_raw_images(raw_dir)
     entries = parse_index(text, images_par_url)
 
     if not entries:
@@ -452,8 +459,8 @@ def main() -> None:
     html = HTML_TEMPLATE.replace("__DATA_JSON__", data_json)
     html = html.replace("__TOTAL_COUNT__", str(len(entries)))
 
-    OUTPUT_PATH.write_text(html, encoding="utf-8")
-    print("vault.html regenere avec", len(entries), "entrees ->", OUTPUT_PATH)
+    output_path.write_text(html, encoding="utf-8")
+    print("gallery.html regenere avec", len(entries), "entrees ->", output_path)
 
 
 if __name__ == "__main__":

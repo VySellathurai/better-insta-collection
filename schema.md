@@ -7,7 +7,7 @@ flowchart TD
     %% ── Sources d'entrée ──────────────────────────────────────────
     subgraph SOURCES["📥  Sources d'entrée"]
         IG_EXPORT["Export Instagram\nsaved_posts.json"]
-        IPHONE["iPhone\nPartager un Reel / TikTok"]
+        IPHONE["iPhone\nPartager un Reel Instagram"]
     end
 
     %% ── Telegram ──────────────────────────────────────────────────
@@ -22,12 +22,13 @@ flowchart TD
         INBOX_SH["inbox.sh"]
     end
 
-    %% ── Scripts Python ────────────────────────────────────────────
-    subgraph SCRIPTS["🐍  Scripts Python (.venv)"]
-        TELEGRAM_INBOX["telegram_inbox.py\nrécupère les URLs du bot"]
-        INGEST["ingest.py\nrécolte + transcription"]
-        GENERATE["generate_vault.py\nrelit index.md → vault.html"]
-        GRAPHE["graphe.py\najoute les liens Obsidian"]
+    %% ── Package Python (src/reels_vault/) ────────────────────────
+    subgraph SCRIPTS["🐍  src/reels_vault/ (.venv, via uv)"]
+        REELS_TELEGRAM["reels-telegram\nrécupère les URLs du bot"]
+        COLLECT["reels-collect\nrécolte + transcription\n(aucune dépendance LLM)"]
+        DIGEST["reels-digest\ntags + résumé\n(Ollama local, une passe)"]
+        PUBLISH["reels-publish\nrelit index.md → gallery.html"]
+        GRAPH["reels-graph\najoute les liens Obsidian"]
     end
 
     %% ── Outils externes ───────────────────────────────────────────
@@ -36,6 +37,7 @@ flowchart TD
         WHISPER["faster-whisper\ntranscription locale"]
         GALLERYDL["gallery-dl\ncarrousels Instagram"]
         FFMPEG["ffmpeg\nextraction d'images"]
+        OLLAMA["Ollama\nqwen2.5:7b (local)"]
     end
 
     %% ── Vault (stockage local) ────────────────────────────────────
@@ -43,66 +45,67 @@ flowchart TD
         RAW["raw/\nfiches .md brutes\n(1 fichier par vidéo)"]
         IMAGES["images/\ncaptures extraites"]
         INDEX["index.md\nrésumés + thèmes"]
-        JOURNAL["journal.json\nsuivi des vidéos traitées"]
-        PROGRESSION["progression.txt\nsuivi de l'indexation Cowork"]
+        JOURNAL["journal.json\nsuivi des vidéos collectées"]
     end
 
     %% ── Consultation ──────────────────────────────────────────────
     subgraph OUTPUT["🖥️  Consultation"]
-        VAULT_HTML["vault.html\nrecherche + filtres hors ligne"]
+        GALLERY_HTML["gallery.html\nrecherche + filtres hors ligne"]
         OBSIDIAN["Obsidian\ngraphe des thèmes"]
-        COWORK["Claude Cowork\nquestions en langage naturel"]
+        CLAUDE_QUERY["Claude (Desktop/Cowork)\nquestions en langage naturel"]
         GDRIVE["Google Drive\n+ app Claude mobile"]
     end
 
     %% ── Flux principal ────────────────────────────────────────────
 
     %% Voie 1 : import en masse depuis l'export Instagram
-    IG_EXPORT -->|"chemin du fichier"| INGEST
+    IG_EXPORT -->|"chemin du fichier"| COLLECT
 
     %% Voie 2 : envoi depuis le téléphone via Telegram
     IPHONE -->|"Partager → Envoyer au Vault\n(Raccourci iPhone)"| BOT
-    BOT -->|"getUpdates API"| TELEGRAM_INBOX
-    TELEGRAM_INBOX -->|"lit / met à jour"| OFFSET
-    TELEGRAM_INBOX -->|"URLs extraites\n(fichier temp)"| INGEST
+    BOT -->|"getUpdates API"| REELS_TELEGRAM
+    REELS_TELEGRAM -->|"lit / met à jour"| OFFSET
+    REELS_TELEGRAM -->|"URLs extraites\n(fichier temp)"| COLLECT
 
     %% Automatisation
     LAUNCHD -->|"déclenche"| INBOX_SH
-    INBOX_SH -->|"appelle"| TELEGRAM_INBOX
+    INBOX_SH -->|"appelle"| REELS_TELEGRAM
 
-    %% ingest.py → outils
-    INGEST -->|"métadonnées"| YTDLP
-    INGEST -->|"audio .m4a"| WHISPER
-    INGEST -->|"carrousels /p/"| GALLERYDL
-    INGEST -->|"captures vidéo"| FFMPEG
+    %% reels-collect → outils
+    COLLECT -->|"métadonnées"| YTDLP
+    COLLECT -->|"audio .m4a"| WHISPER
+    COLLECT -->|"carrousels /p/"| GALLERYDL
+    COLLECT -->|"captures vidéo"| FFMPEG
 
-    %% ingest.py → stockage
-    YTDLP --> INGEST
-    WHISPER --> INGEST
-    GALLERYDL --> INGEST
-    FFMPEG --> INGEST
-    INGEST -->|"écrit fiche .md"| RAW
-    INGEST -->|"sauve avancement"| JOURNAL
+    %% reels-collect → stockage
+    YTDLP --> COLLECT
+    WHISPER --> COLLECT
+    GALLERYDL --> COLLECT
+    FFMPEG --> COLLECT
+    COLLECT -->|"écrit fiche .md (tags vides)"| RAW
+    COLLECT -->|"sauve avancement"| JOURNAL
     FFMPEG -->|"images .jpg"| IMAGES
 
-    %% Indexation par Cowork (manuelle / tâche récurrente 8h)
-    RAW -->|"lit les fiches brutes"| COWORK
-    COWORK -->|"résumés + thèmes\n(lots de 25)"| INDEX
-    COWORK -->|"met à jour"| PROGRESSION
+    %% Digest : tags + résumé, un seul passage par fiche, 100% local
+    RAW -->|"lit les fiches brutes"| DIGEST
+    DIGEST -->|"tags + résumé"| OLLAMA
+    OLLAMA --> DIGEST
+    DIGEST -->|"patche les tags"| RAW
+    DIGEST -->|"ajoute une entrée"| INDEX
 
     %% Génération de la page web
-    INDEX -->|"parse"| GENERATE
-    GENERATE -->|"injecte JSON"| VAULT_HTML
+    INDEX -->|"parse"| PUBLISH
+    PUBLISH -->|"injecte JSON"| GALLERY_HTML
 
     %% Graphe Obsidian
-    INDEX -->|"lit les thèmes"| GRAPHE
-    GRAPHE -->|"ajoute liens [[Thème]]"| RAW
+    INDEX -->|"lit les thèmes"| GRAPH
+    GRAPH -->|"ajoute liens [[Thème]]"| RAW
     RAW -->|"ouvre comme coffre"| OBSIDIAN
 
     %% Consultation
-    VAULT_HTML -->|"double-clic Finder"| OUTPUT
+    GALLERY_HTML -->|"double-clic Finder"| OUTPUT
     INDEX -->|"dépose sur Drive"| GDRIVE
-    VAULT_HTML -->|"dépose sur Drive"| GDRIVE
+    GALLERY_HTML -->|"dépose sur Drive"| GDRIVE
 ```
 
 ---
@@ -114,10 +117,10 @@ sequenceDiagram
     actor U as Utilisateur (iPhone)
     participant TG as Telegram Bot
     participant MAC as Mac (launchd 18h)
-    participant TI as telegram_inbox.py
-    participant IN as ingest.py
-    participant CW as Claude Cowork (8h)
-    participant GV as generate_vault.py
+    participant TI as reels-telegram
+    participant IN as reels-collect
+    participant DG as reels-digest (Ollama local)
+    participant GV as reels-publish
 
     U->>TG: Partager un Reel → "Envoyer au Vault"
     Note over TG: URL stockée côté Telegram<br/>même si le Mac est éteint
@@ -127,16 +130,17 @@ sequenceDiagram
     TG-->>TI: URLs en attente
     TI->>IN: fichier temporaire d'URLs
     IN->>IN: yt-dlp / whisper / ffmpeg
-    IN-->>MAC: fiche .md dans Vault/raw/
+    IN-->>MAC: fiche .md dans Vault/raw/ (sans tags)
     TI->>MAC: met à jour telegram_offset.txt
 
-    CW->>MAC: tâche récurrente 8h
-    CW->>MAC: lit raw/, repère nouveautés
-    CW->>MAC: résume → ajoute à index.md
-    CW->>GV: déclenche generate_vault.py
-    GV-->>MAC: Vault/vault.html régénéré
+    Note over MAC,GV: Digest tourne périodiquement (manuel,<br/>ou une 2e tâche launchd) — 100% local, sans quota Claude
+    MAC->>DG: reels-digest --vault Vault
+    DG->>DG: Ollama : tags + résumé, une passe par fiche
+    DG-->>MAC: tags patchés dans raw/, entrées ajoutées à index.md
+    MAC->>GV: reels-publish --vault Vault
+    GV-->>MAC: Vault/gallery.html régénéré
 
-    U->>MAC: ouvre vault.html (Finder)
+    U->>MAC: ouvre gallery.html (Finder)
     Note over U,MAC: recherche instantanée,<br/>filtres par thème, hors ligne
 ```
 
@@ -146,22 +150,25 @@ sequenceDiagram
 
 ```
 reels-vault/                    ← racine du projet
-├── ingest.py                   ← récolte + transcription
-├── telegram_inbox.py           ← pont Telegram → ingest.py
-├── generate_vault.py           ← index.md → vault.html
-├── graphe.py                   ← index.md → liens Obsidian
-├── requirements.txt            ← dépendances pip
-├── .env                        ← TOKEN + CHAT_ID (ignoré par git)
-├── .env.example                ← modèle à copier
+├── src/reels_vault/             ← package Python (une phase par module)
+│   ├── collect.py               ← récolte + transcription (aucune dépendance LLM)
+│   ├── digest.py                ← tags + résumé via Ollama local
+│   ├── publish.py               ← index.md → gallery.html
+│   ├── graph.py                 ← index.md → liens Obsidian
+│   ├── telegram.py              ← pont Telegram → collect
+│   ├── _ollama.py               ← client Ollama partagé (collect n'en dépend pas)
+│   └── _naming.py               ← dérivation du nom de fiche depuis une URL
+├── pyproject.toml               ← dépendances + entry points reels-* (uv)
+├── .env                         ← TOKEN + CHAT_ID (ignoré par git)
+├── .env.example                 ← modèle à copier
 ├── .gitignore
 │
-└── Vault/                      ← données (ignoré par git)
-    ├── raw/                    ← fiches .md brutes (1 par vidéo)
-    ├── images/                 ← captures extraites des vidéos
-    ├── themes/                 ← notes de thèmes pour Obsidian
-    ├── index.md                ← index résumé par Cowork
-    ├── vault.html              ← page de consultation hors ligne
-    ├── journal.json            ← vidéos déjà traitées par ingest.py
-    ├── progression.txt         ← dernière fiche indexée par Cowork
-    └── telegram_offset.txt     ← dernier message Telegram lu
+└── Vault/                       ← données (ignoré par git)
+    ├── raw/                     ← fiches .md brutes (1 par vidéo)
+    ├── images/                  ← captures extraites des vidéos
+    ├── themes/                  ← notes de thèmes pour Obsidian
+    ├── index.md                 ← index résumé, écrit par Digest
+    ├── gallery.html             ← page de consultation hors ligne
+    ├── journal.json             ← vidéos déjà collectées
+    └── telegram_offset.txt      ← dernier message Telegram lu
 ```

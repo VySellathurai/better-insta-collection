@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-index_agent.py — Étape 5 automatisée : transforme les fiches raw/ en entrées index.md
-via un modèle local Ollama (qwen2.5:7b par défaut).
+digest.py — enrichit les fiches raw/ via un modèle local Ollama (qwen2.5:7b par défaut) :
+pour chaque fiche, génère 3 tags de catégorisation ET un résumé (titre, auteur,
+thèmes, contenu), patche les tags dans la fiche brute, et ajoute une entrée
+dans index.md.
 
 Prérequis :
     brew install ollama
@@ -9,17 +11,16 @@ Prérequis :
     ollama serve                 # à laisser tourner en arrière-plan
 
 Usage :
-    python3 index_agent.py                          # traite jusqu'à 25 fiches
-    python3 index_agent.py --batch 5                # teste sur 5 fiches
-    python3 index_agent.py --dry-run                # aperçu sans écrire
-    python3 index_agent.py --model qwen2.5:3b       # modèle plus léger
-    python3 index_agent.py --vault ~/MonVault       # vault alternatif
+    reels-digest                          # traite jusqu'à 25 fiches
+    reels-digest --batch 5                # teste sur 5 fiches
+    reels-digest --dry-run                # aperçu sans écrire
+    reels-digest --llm-model qwen2.5:3b   # modèle plus léger
+    reels-digest --vault ~/MonVault       # vault alternatif
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import re
 import sys
@@ -28,13 +29,23 @@ from typing import Any
 
 import requests
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
-DEFAULT_MODEL = "qwen2.5:7b"
+from ._ollama import DEFAULT_LLM_MODEL, appeler_ollama, verifier_ollama
+
 DEFAULT_BATCH = 25
 
 logger = logging.getLogger(__name__)
 
-# ── Few-shot examples tirés d'index.md (fixes, haute qualité) ────────────────
+# ── Tags (Ollama, prompt court, sans few-shot) ───────────────────────────────
+
+PROMPT_TAGS = (
+    "Identifie exactement 3 tags courts en français qui catégorisent le mieux "
+    "ce contenu. Les tags doivent être généraux et réutilisables (ex: cuisine, "
+    "politique, voyage, finance, sport, technologie, humour...). "
+    'Réponds UNIQUEMENT avec du JSON valide : {"tags": ["tag1", "tag2", "tag3"]}\n\n'
+    "Contenu :\n"
+)
+
+# ── Résumé (Ollama, few-shot) — tirés d'index.md (fixes, haute qualité) ──────
 
 FEW_SHOT = """
 === EXEMPLE 1 — fiche riche ===
@@ -81,7 +92,48 @@ FORMAT DE RÉPONSE (JSON uniquement, aucun texte avant ou après) :
 {"titre": "...", "auteur": "...", "contenu": "..."}"""
 
 
+# ── Ollama ─────────────────────────────────────────────────────────────────────
+
+
+def extraire_tags(transcription: str, description: str, model: str) -> list[str]:
+    """Identifie 3 tags majeurs via Ollama à partir de la transcription (ou
+    description si pas de transcription). Retourne une liste vide si Ollama
+    n'est pas disponible ou si le contenu est trop pauvre."""
+    texte = transcription.strip() or description.strip()
+    if not texte:
+        return []
+
+    prompt = PROMPT_TAGS + texte[:1500]
+
+    try:
+        data = appeler_ollama([{"role": "user", "content": prompt}], model)
+        tags = data.get("tags", [])
+        if not isinstance(tags, list):
+            return []
+        return [t.strip().lower() for t in tags[:3] if isinstance(t, str) and t.strip()]
+    except requests.RequestException as e:
+        logger.warning("  Ollama indisponible, tags ignorés : %s", e)
+        return []
+    except (KeyError, TypeError, RuntimeError) as e:
+        logger.warning("  Réponse LLM invalide pour les tags : %s", e)
+        return []
+
+
+def resumer_fiche(fiche_texte: str, model: str) -> dict[str, str]:
+    """Envoie la fiche au modèle local et retourne {titre, auteur, contenu}."""
+    prompt_user = f"{FEW_SHOT}\n\n=== FICHE À ANALYSER ===\n{fiche_texte}\n\nRÉPONSE :"
+    return appeler_ollama(
+        [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt_user},
+        ],
+        model,
+        timeout=180,
+    )
+
+
 # ── Parsing ────────────────────────────────────────────────────────────────────
+
 
 def lire_frontmatter(texte: str) -> dict[str, str]:
     """Extrait les champs clé: valeur du bloc frontmatter YAML (entre --- )."""
@@ -116,68 +168,31 @@ def lire_fiches_raw(dossier_raw: Path) -> list[dict[str, Any]]:
         meta = lire_frontmatter(texte)
         if not meta.get("source"):
             continue
-        fiches.append({
-            "fichier": fichier,
-            "url": meta["source"],
-            "auteur": meta.get("auteur", "inconnu"),
-            "traite_le": meta.get("traite_le", ""),
-            "tags": meta.get("tags", ""),
-            "texte": texte,
-        })
+        fiches.append(
+            {
+                "fichier": fichier,
+                "url": meta["source"],
+                "auteur": meta.get("auteur", "inconnu"),
+                "traite_le": meta.get("traite_le", ""),
+                "tags": meta.get("tags", ""),
+                "texte": texte,
+            }
+        )
     return sorted(fiches, key=lambda f: f["traite_le"])
 
 
-# ── Ollama ─────────────────────────────────────────────────────────────────────
-
-def verifier_ollama(model: str) -> None:
-    """Vérifie qu'Ollama tourne et que le modèle est disponible."""
-    try:
-        r = requests.get("http://localhost:11434/api/tags", timeout=5)
-        r.raise_for_status()
-    except requests.RequestException:
-        logger.error(
-            "Ollama ne répond pas sur localhost:11434.\n"
-            "Lance-le avec : ollama serve"
-        )
-        sys.exit(1)
-
-    modeles_dispos = [m["name"] for m in r.json().get("models", [])]
-    # Vérifie correspondance exacte ou variante taguée (qwen2.5:7b == qwen2.5:7b-instruct-q4...)
-    if not any(m == model or m.startswith(model + "-") for m in modeles_dispos):
-        logger.error(
-            "Modèle '%s' introuvable. Modèles disponibles : %s\n"
-            "Installe-le avec : ollama pull %s",
-            model, ", ".join(modeles_dispos) or "(aucun)", model,
-        )
-        sys.exit(1)
-
-
-def appeler_ollama(fiche_texte: str, model: str) -> dict[str, str]:
-    """Envoie la fiche au modèle local et retourne le dict JSON parsé."""
-    prompt_user = f"{FEW_SHOT}\n\n=== FICHE À ANALYSER ===\n{fiche_texte}\n\nRÉPONSE :"
-
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt_user},
-        ],
-        "stream": False,
-        "format": "json",
-        "options": {"temperature": 0.1},
-    }
-
-    r = requests.post(OLLAMA_URL, json=payload, timeout=180)
-    r.raise_for_status()
-
-    contenu_brut = r.json()["message"]["content"]
-    try:
-        return json.loads(contenu_brut)  # type: ignore[no-any-return]
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"Réponse non-JSON du modèle : {contenu_brut[:200]}") from e
+def mettre_a_jour_tags_fiche(fiche_path: Path, tags: list[str]) -> None:
+    """Patche la fiche brute in place : frontmatter `tags:` et section `## Tags`."""
+    texte = fiche_path.read_text(encoding="utf-8")
+    tags_frontmatter = ", ".join(tags) if tags else ""
+    tags_ligne = ", ".join(f"#{t.replace(' ', '-')}" for t in tags) if tags else "(non généré)"
+    texte = re.sub(r"(?m)^tags:.*$", lambda _m: f"tags: {tags_frontmatter}", texte, count=1)
+    texte = re.sub(r"(?m)^## Tags\n.*$", lambda _m: f"## Tags\n{tags_ligne}", texte, count=1)
+    fiche_path.write_text(texte, encoding="utf-8")
 
 
 # ── Formatage ─────────────────────────────────────────────────────────────────
+
 
 def _une_ligne(texte: str) -> str:
     """Aplati un texte multi-lignes (le LLM peut renvoyer des \\n malgré le prompt)
@@ -202,6 +217,7 @@ def formater_entree(url: str, champs: dict[str, str], tags: str) -> str:
 
 # ── Programme principal ────────────────────────────────────────────────────────
 
+
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -211,25 +227,34 @@ def main() -> None:
     )
 
     parseur = argparse.ArgumentParser(
-        description="Indexe automatiquement les fiches raw/ via un modèle Ollama local."
+        description="Enrichit les fiches raw/ (tags + résumé) via un modèle Ollama local."
     )
     parseur.add_argument("--vault", default="./Vault", help="dossier vault (défaut: ./Vault)")
-    parseur.add_argument("--model", default=DEFAULT_MODEL, help=f"modèle Ollama (défaut: {DEFAULT_MODEL})")
-    parseur.add_argument("--batch", type=int, default=DEFAULT_BATCH, help=f"fiches par session (défaut: {DEFAULT_BATCH})")
+    parseur.add_argument(
+        "--llm-model",
+        dest="llm_model",
+        default=DEFAULT_LLM_MODEL,
+        help=f"modèle Ollama (défaut: {DEFAULT_LLM_MODEL})",
+    )
+    parseur.add_argument(
+        "--batch",
+        type=int,
+        default=DEFAULT_BATCH,
+        help=f"fiches par session (défaut: {DEFAULT_BATCH})",
+    )
     parseur.add_argument("--dry-run", action="store_true", help="aperçu sans écrire dans index.md")
     args = parseur.parse_args()
 
     vault = Path(args.vault)
     index_path = vault / "index.md"
     dossier_raw = vault / "raw"
-    progression_path = vault / "progression.txt"
 
     if not dossier_raw.exists():
         logger.error("Dossier raw introuvable : %s", dossier_raw)
         sys.exit(1)
 
     if not args.dry_run:
-        verifier_ollama(args.model)
+        verifier_ollama(args.llm_model)
 
     # Charger l'état actuel
     urls_indexees = lire_urls_indexees(index_path)
@@ -240,7 +265,9 @@ def main() -> None:
 
     logger.info(
         "%d fiches raw, %d déjà indexées, %d à traiter.",
-        len(toutes_fiches), len(urls_indexees), len(a_traiter),
+        len(toutes_fiches),
+        len(urls_indexees),
+        len(a_traiter),
     )
 
     if not a_traiter:
@@ -250,7 +277,8 @@ def main() -> None:
     batch = a_traiter[: args.batch]
     logger.info(
         "Traitement de %d fiche(s) avec le modèle '%s'%s.",
-        len(batch), args.model,
+        len(batch),
+        args.llm_model,
         " [DRY RUN — aucune écriture]" if args.dry_run else "",
     )
 
@@ -264,21 +292,33 @@ def main() -> None:
             continue
 
         try:
-            champs = appeler_ollama(fiche["texte"], args.model)
+            tags = [t.strip() for t in fiche["tags"].split(",") if t.strip()]
+            if not tags:
+                transcription_m = re.search(
+                    r"(?ms)^## Transcription audio\n(.*?)(?:\n## |\Z)", fiche["texte"]
+                )
+                description_m = re.search(
+                    r"(?ms)^## Description\n(.*?)(?:\n## |\Z)", fiche["texte"]
+                )
+                tags = extraire_tags(
+                    transcription_m.group(1).strip() if transcription_m else "",
+                    description_m.group(1).strip() if description_m else "",
+                    args.llm_model,
+                )
+                mettre_a_jour_tags_fiche(fiche["fichier"], tags)
+
+            champs = resumer_fiche(fiche["texte"], args.llm_model)
 
             # Garantir que l'auteur correspond au frontmatter si le modèle l'a raté
             if not champs.get("auteur") or champs["auteur"] in ("inconnu", ""):
                 champs["auteur"] = fiche["auteur"]
 
-            entree = formater_entree(fiche["url"], champs, fiche["tags"])
+            entree = formater_entree(fiche["url"], champs, ", ".join(tags))
             logger.info("  → %s", champs.get("titre", "?"))
 
             # Écriture dans index.md (append)
             with index_path.open("a", encoding="utf-8") as f:
                 f.write(entree)
-
-            # Mise à jour de progression.txt
-            progression_path.write_text(nom, encoding="utf-8")
 
             reussites += 1
 

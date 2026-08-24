@@ -10,3 +10,6 @@ Vault/
 dist/
 build/
 *.egg-info/
+node_modules/
+.next/
+*.tsbuildinfo

@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-backoffice}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-backoffice}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - backoffice_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-backoffice} -d ${POSTGRES_DB:-backoffice}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  backoffice_pgdata:

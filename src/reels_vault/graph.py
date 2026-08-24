@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-graphe.py - Cree les liens Obsidian a partir de index.md.
+graph.py - Cree les liens Obsidian a partir de index.md.
 
 Ce script ne fait AUCUN appel a une IA : il lit simplement index.md, retrouve
 la fiche correspondante dans raw/, et y ajoute des liens [[Theme]].
@@ -10,7 +10,7 @@ du graphe.
 Relancable sans risque : une fiche deja traitee est laissee telle quelle.
 
 Usage :
-    python3 graphe.py --vault "$HOME/Vault"
+    reels-graph --vault "$HOME/Vault"
 """
 
 from __future__ import annotations
@@ -23,17 +23,11 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from ._naming import identifiant
+
 MARQUEUR = "## Liens"
 
 logger = logging.getLogger(__name__)
-
-
-def identifiant(lien: str) -> str:
-    """Meme logique que ingest.py : derive le nom de fichier depuis l'URL."""
-    fin = lien.rstrip("/").split("/")[-1].split("?")[0]
-    fin = re.sub(r"[^A-Za-z0-9_-]", "", fin)[:40]
-    plateforme = "tiktok" if "tiktok" in lien else "insta"
-    return f"{plateforme}_{fin}"
 
 
 def nom_sur(texte: str) -> str:
@@ -59,15 +53,15 @@ def lire_index(chemin: Path) -> list[dict[str, Any]]:
 
         themes = []
         if m_themes:
-            themes = [
-                nom_sur(t) for t in m_themes.group(1).split(",") if nom_sur(t)
-            ]
+            themes = [nom_sur(t) for t in m_themes.group(1).split(",") if nom_sur(t)]
 
-        entrees.append({
-            "titre": titre,
-            "lien": m_lien.group(1).rstrip(".,);"),
-            "themes": themes,
-        })
+        entrees.append(
+            {
+                "titre": titre,
+                "lien": m_lien.group(1).rstrip(".,);"),
+                "themes": themes,
+            }
+        )
 
     return entrees
 
@@ -130,9 +124,7 @@ def main() -> None:
         for e in sorted(liste, key=lambda x: x["titre"].lower()):
             note = identifiant(e["lien"])
             lignes.append(f"- [[{note}|{e['titre']}]]")
-        (dossier_themes / f"{theme}.md").write_text(
-            "\n".join(lignes) + "\n", encoding="utf-8"
-        )
+        (dossier_themes / f"{theme}.md").write_text("\n".join(lignes) + "\n", encoding="utf-8")
 
     logger.info("fiches enrichies   : %d", modifiees)
     logger.info("deja faites        : %d", deja)

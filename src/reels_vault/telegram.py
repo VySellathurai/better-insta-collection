@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-telegram_inbox.py — récupère les URLs envoyées au bot Telegram et les ingère.
+telegram.py — récupère les URLs envoyées au bot Telegram et déclenche Collect.
 
 Fonctionnement :
   1. lit TELEGRAM_TOKEN et TELEGRAM_CHAT_ID dans .env (à la racine du Vault)
   2. récupère les messages non lus via l'API Telegram
-  3. extrait les URLs Instagram / TikTok
-  4. passe le fichier temporaire à ingest.py
+  3. extrait les URLs Instagram
+  4. passe le fichier temporaire à reels-collect
   5. marque les messages comme lus (via l'offset) pour ne pas les retraiter
 
 Usage :
-    python3 telegram_inbox.py --vault "$HOME/Vault" --cookies firefox
+    reels-telegram --vault "$HOME/Vault" --cookies firefox
 """
 
 from __future__ import annotations
@@ -72,7 +72,7 @@ def sauver_offset(vault: Path, offset: int) -> None:
 
 
 def recuperer_urls(token: str, chat_id: str, offset: int) -> tuple[list[str], int]:
-    """Interroge l'API Telegram, filtre les URLs Instagram/TikTok.
+    """Interroge l'API Telegram, filtre les URLs Instagram.
 
     Retourne (liste_urls, nouvel_offset).
     """
@@ -123,16 +123,25 @@ def recuperer_urls(token: str, chat_id: str, offset: int) -> tuple[list[str], in
                 break
 
         url = extracted or (text if text.startswith("http") else "")
-        if url and ("instagram.com" in url or "tiktok.com" in url):
+        if url and "instagram.com" in url:
             urls.append(url)
 
     new_offset = (last_update_id + 1) if last_update_id is not None else offset
     return urls, new_offset
 
 
+def _resoudre_reels_collect() -> str:
+    """Chemin du script console reels-collect installé dans le même venv que
+    l'interpréteur courant (sys.executable)."""
+    candidat = Path(sys.executable).parent / "reels-collect"
+    if candidat.exists():
+        return str(candidat)
+    return "reels-collect"  # repli : espère le trouver sur le PATH
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Ingère les URLs Telegram dans le Vault."
+        description="Récupère les URLs Telegram et déclenche Collect sur le Vault."
     )
     parser.add_argument("--vault", default=str(Path.home() / "Vault"))
     parser.add_argument(
@@ -140,7 +149,12 @@ def main() -> None:
         default=None,
         help="navigateur pour les cookies (firefox, chrome…)",
     )
-    parser.add_argument("--modele", default=None, help="modèle Whisper (tiny/small…)")
+    parser.add_argument(
+        "--whisper-model",
+        dest="whisper_model",
+        default=None,
+        help="modèle faster-whisper (tiny/small…)",
+    )
     parser.add_argument("--limite", type=int, default=0)
     args = parser.parse_args()
 
@@ -156,25 +170,23 @@ def main() -> None:
         sauver_offset(vault, new_offset)
         return
 
-    print(f"{len(urls)} URL(s) trouvée(s) — lancement de l'ingestion.")
+    print(f"{len(urls)} URL(s) trouvée(s) — lancement de Collect.")
 
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".txt", delete=False, encoding="utf-8"
-    ) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
         f.write("\n".join(urls))
         tmp_path = f.name
 
     try:
         cmd = [
-            sys.executable,
-            str(Path(__file__).parent / "ingest.py"),
+            _resoudre_reels_collect(),
             tmp_path,
-            "--vault", str(vault),
+            "--vault",
+            str(vault),
         ]
         if args.cookies:
             cmd += ["--cookies", args.cookies]
-        if args.modele:
-            cmd += ["--modele", args.modele]
+        if args.whisper_model:
+            cmd += ["--whisper-model", args.whisper_model]
         if args.limite:
             cmd += ["--limite", str(args.limite)]
 

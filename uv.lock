@@ -942,7 +942,7 @@ wheels = [
 [[package]]
 name = "reels-vault"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "faster-whisper" },
     { name = "gallery-dl" },

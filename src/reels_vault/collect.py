@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ingest.py — transforme une liste de liens TikTok / Instagram en fiches Markdown.
+collect.py — transforme une liste de liens Instagram en fiches Markdown.
 
 Pour chaque vidéo :
   1. récupère les métadonnées (titre, description, auteur, hashtags)
@@ -8,13 +8,16 @@ Pour chaque vidéo :
   3. extrait 3 images de la vidéo (pour le texte incrusté à l'écran)
   4. écrit une fiche Markdown dans vault/raw/
 
+Étape purement mécanique : aucune dépendance à un LLM. Les tags et le résumé
+sont ajoutés ensuite par la phase Digest (`reels-digest`).
+
 Le script reprend là où il s'est arrêté : on peut le couper (Ctrl+C) et le
 relancer sans retraiter ce qui est déjà fait.
 
 Usage :
-    python3 ingest.py mes_liens.txt
-    python3 ingest.py saved_posts.json --cookies firefox
-    python3 ingest.py liens.txt --limite 20        (pour tester sur 20 vidéos)
+    reels-collect mes_liens.txt
+    reels-collect saved_posts.json --cookies firefox
+    reels-collect liens.txt --limite 20        (pour tester sur 20 vidéos)
 """
 
 from __future__ import annotations
@@ -30,16 +33,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import requests
+from ._naming import identifiant
 
 # ---------------------------------------------------------------- configuration
 
-VAULT = Path.home() / "vault"          # modifiable avec --vault
-MODELE_WHISPER = "small"               # tiny / base / small / medium
-PAUSE_ENTRE_VIDEOS = 3                 # secondes, pour ne pas se faire bloquer
+VAULT = Path.home() / "vault"  # modifiable avec --vault
+WHISPER_MODEL = "small"  # tiny / base / small / medium
+PAUSE_ENTRE_VIDEOS = 3  # secondes, pour ne pas se faire bloquer
 NB_IMAGES = 3
-OLLAMA_URL = "http://localhost:11434/api/chat"
-DEFAULT_LLM_MODEL = "qwen2.5:7b"
 
 YTDLP = [sys.executable, "-m", "yt_dlp"]
 GALLERYDL = [sys.executable, "-m", "gallery_dl"]
@@ -52,6 +53,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------- utilitaires
+
 
 def verifier_outils() -> None:
     """Verifie que yt-dlp et ffmpeg repondent avant de commencer."""
@@ -75,7 +77,7 @@ def verifier_outils() -> None:
 
 
 def extraire_liens(chemin: str | Path) -> list[str]:
-    """Récupère toutes les URLs TikTok/Instagram d'un fichier, quel que soit
+    """Récupère toutes les URLs Instagram d'un fichier, quel que soit
     son format (txt, csv, json d'export). Les doublons sont supprimés."""
     texte = Path(chemin).read_text(encoding="utf-8", errors="ignore")
     liens: list[str] = []
@@ -105,20 +107,11 @@ def charger_journal(chemin: Path) -> dict[str, Any]:
 
 
 def sauver_journal(chemin: Path, journal: dict[str, Any]) -> None:
-    chemin.write_text(
-        json.dumps(journal, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-
-
-def identifiant(lien: str) -> str:
-    """Un nom de fichier court et sûr, dérivé de l'URL."""
-    fin = lien.rstrip("/").split("/")[-1].split("?")[0]
-    fin = re.sub(r"[^A-Za-z0-9_-]", "", fin)[:40]
-    plateforme = "tiktok" if "tiktok" in lien else "insta"
-    return f"{plateforme}_{fin or str(abs(hash(lien)))[:10]}"
+    chemin.write_text(json.dumps(journal, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 # ---------------------------------------------------------------- étapes
+
 
 def recuperer_metadonnees(lien: str, cookies: str | None) -> dict[str, Any]:
     commande = YTDLP + ["--dump-json", "--no-warnings", "--skip-download"]
@@ -140,17 +133,26 @@ def telecharger_media(
     base = YTDLP + ["--no-warnings", "--quiet"] + options_cookies(cookies)
 
     subprocess.run(
-        base + ["-f", "bestaudio", "-x", "--audio-format", "m4a",
-                "-o", str(dossier / f"{nom}.%(ext)s"), lien],
-        capture_output=True, timeout=300,
+        base
+        + [
+            "-f",
+            "bestaudio",
+            "-x",
+            "--audio-format",
+            "m4a",
+            "-o",
+            str(dossier / f"{nom}.%(ext)s"),
+            lien,
+        ],
+        capture_output=True,
+        timeout=300,
     )
     subprocess.run(
-        base + ["-f", "worstvideo[height>=480]/worst",
-                "-o", str(video), lien],
-        capture_output=True, timeout=300,
+        base + ["-f", "worstvideo[height>=480]/worst", "-o", str(video), lien],
+        capture_output=True,
+        timeout=300,
     )
-    return (audio if audio.exists() else None,
-            video if video.exists() else None)
+    return (audio if audio.exists() else None, video if video.exists() else None)
 
 
 def transcrire(audio: Path | None, modele: Any) -> str:
@@ -187,8 +189,7 @@ def telecharger_carrousel(
     subprocess.run(commande, capture_output=True, timeout=300)
 
     images = sorted(
-        p for p in cible.glob("*")
-        if p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
+        p for p in cible.glob("*") if p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
     )
 
     legende = ""
@@ -215,57 +216,28 @@ def extraire_images(
         instant = duree * (i + 1) / (NB_IMAGES + 1)
         sortie = dossier_images / f"{nom}_{i + 1}.jpg"
         subprocess.run(
-            ["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{instant:.1f}",
-             "-i", str(video), "-frames:v", "1", "-vf", "scale=720:-1",
-             str(sortie)],
-            capture_output=True, timeout=90,
+            [
+                "ffmpeg",
+                "-y",
+                "-loglevel",
+                "error",
+                "-ss",
+                f"{instant:.1f}",
+                "-i",
+                str(video),
+                "-frames:v",
+                "1",
+                "-vf",
+                "scale=720:-1",
+                str(sortie),
+            ],
+            capture_output=True,
+            timeout=90,
         )
         if sortie.exists():
             chemins.append(sortie)
             logger.info("  Image extraite : %s", sortie.name)
     return chemins
-
-
-def extraire_tags(transcription: str, description: str, model: str) -> list[str]:
-    """Identifie 3 tags majeurs via Ollama à partir de la transcription (ou
-    description si pas de transcription). Retourne une liste vide si Ollama
-    n'est pas disponible ou si le contenu est trop pauvre."""
-    texte = transcription.strip() or description.strip()
-    if not texte:
-        return []
-
-    prompt = (
-        "Identifie exactement 3 tags courts en français qui catégorisent le mieux "
-        "ce contenu. Les tags doivent être généraux et réutilisables (ex: cuisine, "
-        "politique, voyage, finance, sport, technologie, humour...). "
-        "Réponds UNIQUEMENT avec du JSON valide : {\"tags\": [\"tag1\", \"tag2\", \"tag3\"]}\n\n"
-        f"Contenu :\n{texte[:1500]}"
-    )
-
-    try:
-        r = requests.post(
-            OLLAMA_URL,
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "stream": False,
-                "format": "json",
-                "options": {"temperature": 0.1},
-            },
-            timeout=60,
-        )
-        r.raise_for_status()
-        data = json.loads(r.json()["message"]["content"])
-        tags = data.get("tags", [])
-        if not isinstance(tags, list):
-            return []
-        return [t.strip().lower() for t in tags[:3] if isinstance(t, str) and t.strip()]
-    except requests.RequestException as e:
-        logger.warning("  Ollama indisponible, tags ignorés : %s", e)
-        return []
-    except (KeyError, TypeError, json.JSONDecodeError, ValueError) as e:
-        logger.warning("  Réponse LLM invalide pour les tags : %s", e)
-        return []
 
 
 def ecrire_fiche(
@@ -277,7 +249,6 @@ def ecrire_fiche(
     transcription: str,
     images: list[Path],
     genre: str,
-    tags: list[str],
 ) -> None:
     liens_images = []
     for p in images:
@@ -286,23 +257,21 @@ def ecrire_fiche(
         except ValueError:
             liens_images.append(f"- {p.name}")
 
-    tags_ligne = ", ".join(f"#{t.replace(' ', '-')}" for t in tags) if tags else "(non généré)"
-
     contenu = f"""---
 source: {lien}
-plateforme: {"TikTok" if "tiktok" in lien else "Instagram"}
+plateforme: Instagram
 genre: {genre}
 auteur: {meta.get("uploader") or meta.get("channel") or "inconnu"}
 duree_s: {meta.get("duration") or ""}
 traite_le: {datetime.now():%Y-%m-%d}
 statut: brut
-tags: {", ".join(tags) if tags else ""}
+tags:
 ---
 
 # {(meta.get("title") or nom)[:120]}
 
 ## Tags
-{tags_ligne}
+(non généré)
 
 ## Description
 {(meta.get("description") or "").strip() or "(vide)"}
@@ -320,6 +289,7 @@ tags: {", ".join(tags) if tags else ""}
 
 # ---------------------------------------------------------------- programme
 
+
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -331,13 +301,18 @@ def main() -> None:
     parseur = argparse.ArgumentParser()
     parseur.add_argument("fichier", help="fichier contenant les liens")
     parseur.add_argument("--vault", default=str(VAULT))
-    parseur.add_argument("--cookies", default=None,
-                         help="navigateur pour les cookies (chrome, firefox, edge)")
-    parseur.add_argument("--limite", type=int, default=0,
-                         help="ne traiter que les N premières vidéos")
-    parseur.add_argument("--modele", default=MODELE_WHISPER)
-    parseur.add_argument("--model", default=DEFAULT_LLM_MODEL,
-                         help="modèle Ollama pour l'extraction des tags")
+    parseur.add_argument(
+        "--cookies", default=None, help="navigateur pour les cookies (chrome, firefox, edge)"
+    )
+    parseur.add_argument(
+        "--limite", type=int, default=0, help="ne traiter que les N premières vidéos"
+    )
+    parseur.add_argument(
+        "--whisper-model",
+        dest="whisper_model",
+        default=WHISPER_MODEL,
+        help="modèle faster-whisper (tiny/base/small/medium)",
+    )
     args = parseur.parse_args()
 
     verifier_outils()
@@ -361,9 +336,10 @@ def main() -> None:
     if not a_faire:
         return
 
-    logger.info("Chargement du modèle Whisper « %s » (long la 1re fois)...", args.modele)
+    logger.info("Chargement du modèle Whisper « %s » (long la 1re fois)...", args.whisper_model)
     from faster_whisper import WhisperModel
-    modele = WhisperModel(args.modele, device="cpu", compute_type="int8")
+
+    modele = WhisperModel(args.whisper_model, device="cpu", compute_type="int8")
 
     reussites = echecs = 0
     for numero, lien in enumerate(a_faire, 1):
@@ -380,29 +356,21 @@ def main() -> None:
             audio = video = None
             if meta.get("duration"):
                 genre = "video"
-                audio, video = telecharger_media(lien, dossier_temp, nom,
-                                                 args.cookies)
+                audio, video = telecharger_media(lien, dossier_temp, nom, args.cookies)
                 transcription = transcrire(audio, modele)
-                images = extraire_images(video, dossier_images, nom,
-                                         meta.get("duration"))
+                images = extraire_images(video, dossier_images, nom, meta.get("duration"))
             else:
                 genre = "carrousel"
                 transcription = ""
-                images, legende = telecharger_carrousel(lien, dossier_images,
-                                                        nom, args.cookies)
+                images, legende = telecharger_carrousel(lien, dossier_images, nom, args.cookies)
                 if not images:
                     raise RuntimeError(
-                        "ni vidéo ni image récupérée | yt-dlp : "
-                        + (erreur_meta or "aucun message")
+                        "ni vidéo ni image récupérée | yt-dlp : " + (erreur_meta or "aucun message")
                     )
                 if legende and not meta.get("description"):
                     meta["description"] = legende
 
-            tags = extraire_tags(transcription, meta.get("description") or "",
-                                 args.model)
-
-            ecrire_fiche(dossier_raw, vault, nom, lien, meta, transcription,
-                         images, genre, tags)
+            ecrire_fiche(dossier_raw, vault, nom, lien, meta, transcription, images, genre)
 
             for fichier in (audio, video):
                 if fichier and fichier.exists():

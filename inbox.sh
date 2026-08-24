@@ -1,4 +1,4 @@
 #!/bin/zsh
-cd "$HOME/Vault"
+cd "$HOME/Documents/private/reels-vault"
 source .venv/bin/activate
-python3 telegram_inbox.py --vault "./Vault" --cookies firefox
+uv run reels-telegram --vault "./Vault" --cookies firefox

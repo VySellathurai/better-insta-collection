@@ -14,4 +14,4 @@ jobs:
       - run: uv sync --frozen --group dev
       - run: uv run ruff check .
       - run: uv run ruff format --check .
-      - run: uv run mypy ingest.py graphe.py generate_vault.py telegram_inbox.py
+      - run: uv run mypy src/

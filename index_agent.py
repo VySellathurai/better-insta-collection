@@ -50,7 +50,7 @@ Ce qu'on ne vous dit pas concernant la réduction des alloc chomage…!
 On va parler de la réduction des allocations chômage. L'objectif de cette loi c'est de réduire de 3 mois la durée maximale pour les moins de 55 ans et de 7 mois pour les plus de 55 ans. La justification officielle c'est de faire économiser 1 milliard d'euros à l'UNEDIC. Entre 2023 et 2026, l'État a tapé 12 milliards dans les caisses de l'UNEDIC. Si l'État n'avait pas tapé dans les caisses, on serait en excédent de 2 milliards. Les députés qui ont voté ça touchent 6 000€ nets, 7 000€ de dotation, 11 000€ de crédit collaborateur soit 25 000€/mois, avec 15 à 20 semaines de vacances par an contre 5 pour le privé.
 
 RÉPONSE :
-{"titre": "La réduction des allocations chômage et les chiffres cachés de l'UNEDIC", "auteur": "Louis Matys", "themes": "politique française, économie", "contenu": "Dénonce la loi réduisant la durée d'allocation chômage (-3 mois pour les moins de 55 ans, -7 mois pour les plus de 55 ans), censée économiser 1 milliard € à l'UNEDIC. Affirme que l'État a prélevé 12 milliards € dans les caisses de l'UNEDIC entre 2023 et 2026, ce qui aurait généré un excédent de 2 milliards sans ce prélèvement. Les députés ayant voté la loi touchent 25 000€/mois et 15 à 20 semaines de vacances par an contre 5 pour le privé."}
+{"titre": "La réduction des allocations chômage et les chiffres cachés de l'UNEDIC", "auteur": "Louis Matys", "contenu": "Dénonce la loi réduisant la durée d'allocation chômage (-3 mois pour les moins de 55 ans, -7 mois pour les plus de 55 ans), censée économiser 1 milliard € à l'UNEDIC. Affirme que l'État a prélevé 12 milliards € dans les caisses de l'UNEDIC entre 2023 et 2026, ce qui aurait généré un excédent de 2 milliards sans ce prélèvement. Les députés ayant voté la loi touchent 25 000€/mois et 15 à 20 semaines de vacances par an contre 5 pour le privé."}
 
 === EXEMPLE 2 — fiche pauvre ===
 FICHE :
@@ -65,21 +65,20 @@ Such a long awaited journey bro
 (pas d'audio exploitable)
 
 RÉPONSE :
-{"titre": "Vidéo sans contenu exploitable (Kaan aktas)", "auteur": "Kaan aktas", "themes": "(aucun thème identifiable)", "contenu": "Fiche trop pauvre pour un résumé concret : pas d'audio exploitable, description limitée à 'Such a long awaited journey bro' sans détail sur le lieu ou l'événement."}
+{"titre": "Vidéo sans contenu exploitable (Kaan aktas)", "auteur": "Kaan aktas", "contenu": "Fiche trop pauvre pour un résumé concret : pas d'audio exploitable, description limitée à 'Such a long awaited journey bro' sans détail sur le lieu ou l'événement."}
 """
 
 SYSTEM_PROMPT = """Tu es un assistant qui indexe des fiches de vidéos sociales en français.
-Pour chaque fiche, tu extrais exactement 4 champs et réponds UNIQUEMENT avec du JSON valide.
+Pour chaque fiche, tu extrais exactement 3 champs et réponds UNIQUEMENT avec du JSON valide.
 
 RÈGLES STRICTES :
 - titre : court, concret, descriptif — JAMAIS générique ("Cette vidéo parle de…" est interdit)
 - auteur : copie exactement le champ "auteur" du frontmatter de la fiche
-- themes : 1 à 3 thèmes séparés par des virgules ; si le contenu est trop pauvre : "(aucun thème identifiable)"
 - contenu : 2 à 4 lignes avec des FAITS CONCRETS (chiffres, noms, lieux, prix, adresses, horaires)
   → Si transcription vide ou trop vague : "Fiche trop pauvre pour un résumé concret : [raison précise]"
 
 FORMAT DE RÉPONSE (JSON uniquement, aucun texte avant ou après) :
-{"titre": "...", "auteur": "...", "themes": "...", "contenu": "..."}"""
+{"titre": "...", "auteur": "...", "contenu": "..."}"""
 
 
 # ── Parsing ────────────────────────────────────────────────────────────────────
@@ -122,6 +121,7 @@ def lire_fiches_raw(dossier_raw: Path) -> list[dict[str, Any]]:
             "url": meta["source"],
             "auteur": meta.get("auteur", "inconnu"),
             "traite_le": meta.get("traite_le", ""),
+            "tags": meta.get("tags", ""),
             "texte": texte,
         })
     return sorted(fiches, key=lambda f: f["traite_le"])
@@ -179,11 +179,11 @@ def appeler_ollama(fiche_texte: str, model: str) -> dict[str, str]:
 
 # ── Formatage ─────────────────────────────────────────────────────────────────
 
-def formater_entree(url: str, champs: dict[str, str]) -> str:
-    """Formate une entrée index.md à partir des champs extraits."""
+def formater_entree(url: str, champs: dict[str, str], tags: str) -> str:
+    """Formate une entrée index.md à partir des champs extraits et des tags de la fiche."""
     titre = champs.get("titre", "Sans titre").strip()
     auteur = champs.get("auteur", "inconnu").strip()
-    themes = champs.get("themes", "(aucun thème identifiable)").strip()
+    themes = tags.strip() or "(aucun thème identifiable)"
     contenu = champs.get("contenu", "").strip()
     return (
         f"\n### {titre}\n"
@@ -264,7 +264,7 @@ def main() -> None:
             if not champs.get("auteur") or champs["auteur"] in ("inconnu", ""):
                 champs["auteur"] = fiche["auteur"]
 
-            entree = formater_entree(fiche["url"], champs)
+            entree = formater_entree(fiche["url"], champs, fiche["tags"])
             logger.info("  → %s", champs.get("titre", "?"))
 
             # Écriture dans index.md (append)

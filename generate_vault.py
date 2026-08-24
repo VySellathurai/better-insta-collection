@@ -24,11 +24,35 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent
 VAULT_DIR = ROOT / "Vault"
 INDEX_PATH = VAULT_DIR / "index.md"
+RAW_DIR = VAULT_DIR / "raw"
 OUTPUT_PATH = VAULT_DIR / "vault.html"
 
 
-def parse_index(text: str) -> list[dict[str, Any]]:
-    """Parse index.md en une liste de dicts {titre, lien, auteur, themes, contenu}."""
+def parse_raw_images(raw_dir: Path) -> dict[str, list[str]]:
+    """Associe chaque URL source à la liste des chemins d'images (relatifs à
+    Vault/) de sa fiche brute, en lisant la section "## Images" de raw/*.md."""
+    images_par_url: dict[str, list[str]] = {}
+    if not raw_dir.exists():
+        return images_par_url
+    for fichier in raw_dir.glob("*.md"):
+        texte = fichier.read_text(encoding="utf-8", errors="ignore")
+        m_source = re.search(r"(?m)^source:\s*(\S+)", texte)
+        if not m_source:
+            continue
+        m_images = re.search(r"(?ms)^## Images\n(.*?)(?:\n## |\Z)", texte)
+        images: list[str] = []
+        if m_images:
+            for ligne in m_images.group(1).splitlines():
+                ligne = ligne.strip()
+                if ligne.startswith("- "):
+                    images.append(ligne[2:].strip())
+        images_par_url[m_source.group(1).strip()] = images
+    return images_par_url
+
+
+def parse_index(text: str, images_par_url: dict[str, list[str]] | None = None) -> list[dict[str, Any]]:
+    """Parse index.md en une liste de dicts {titre, lien, auteur, themes, contenu, images}."""
+    images_par_url = images_par_url or {}
     entries: list[dict[str, Any]] = []
     # Coupe le texte en blocs qui commencent par "### "
     blocks = re.split(r"(?m)^### ", text)
@@ -58,6 +82,7 @@ def parse_index(text: str) -> list[dict[str, Any]]:
                 "auteur": auteur,
                 "themes": themes,
                 "contenu": contenu,
+                "images": images_par_url.get(lien, []),
             }
         )
     return entries
@@ -92,7 +117,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
   .wrap {
-    max-width: 860px;
+    max-width: 1160px;
     margin: 0 auto;
     padding: 16px 14px 60px;
   }
@@ -192,6 +217,25 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     flex-wrap: wrap;
     gap: 6px;
     margin-bottom: 8px;
+  }
+  .entry .images {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 12px;
+    overflow-x: auto;
+  }
+  .entry .images img {
+    height: 340px;
+    width: auto;
+    max-width: 100%;
+    border-radius: 10px;
+    object-fit: cover;
+    border: 1px solid var(--border);
+    flex-shrink: 0;
+    cursor: zoom-in;
+  }
+  @media (max-width: 480px) {
+    .entry .images img { height: 220px; }
   }
   .entry .auteur {
     color: var(--text-dim);
@@ -355,6 +399,10 @@ function renderEntries() {
     const tags = e.themes.map(function (t) {
       return '<span class="tag">' + escapeHtml(t) + "</span>";
     }).join("");
+    const images = (e.images || []).map(function (src) {
+      return '<a href="' + escapeHtml(src) + '" target="_blank" rel="noopener">' +
+        '<img src="' + escapeHtml(src) + '" loading="lazy" alt=""></a>';
+    }).join("");
     const titre = searchQuery ? highlight(e.titre, searchQuery.trim()) : escapeHtml(e.titre);
     const contenu = searchQuery ? highlight(e.contenu, searchQuery.trim()) : escapeHtml(e.contenu);
     const auteur = searchQuery ? highlight(e.auteur, searchQuery.trim()) : escapeHtml(e.auteur);
@@ -365,6 +413,7 @@ function renderEntries() {
       '<article class="entry">' +
       "<h2>" + (e.lien ? '<a href="' + escapeHtml(e.lien) + '" target="_blank" rel="noopener">' + titre + "</a>" : titre) + "</h2>" +
       '<div class="meta">' + tags + "</div>" +
+      (images ? '<div class="images">' + images + "</div>" : "") +
       '<div class="auteur">👤 ' + auteur + "</div>" +
       '<p class="contenu">' + contenu + "</p>" +
       lienHtml +
@@ -392,7 +441,8 @@ def main() -> None:
         sys.exit(1)
 
     text = INDEX_PATH.read_text(encoding="utf-8")
-    entries = parse_index(text)
+    images_par_url = parse_raw_images(RAW_DIR)
+    entries = parse_index(text, images_par_url)
 
     if not entries:
         print("Aucune entree trouvee dans index.md.", file=sys.stderr)

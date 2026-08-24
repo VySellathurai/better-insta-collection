@@ -219,6 +219,8 @@ Ouvre ensuite `Vault/gallery.html` d'un double-clic dans le Finder. **C'est ce q
 
 ## Étape 7 — Envoyer une vidéo depuis son téléphone
 
+> ⚠️ `reels-telegram` a été porté vers la nouvelle structure du projet mais pas encore re-testé en conditions réelles. Vérifie qu'il fonctionne chez toi avant de compter dessus au quotidien.
+
 L'idée : tu envoies le lien à un bot Telegram depuis ton téléphone. Quand ton Mac se réveille, il interroge le bot, récupère les URLs en attente et les collecte. Les liens s'accumulent côté Telegram même si ton Mac est éteint plusieurs jours — rien n'est perdu.
 
 ### 7.1 — Créer le bot Telegram (5 min, une seule fois)
@@ -448,13 +450,15 @@ Puis `Cmd+G` dans Obsidian. Monte **Repel** dans les réglages « Forces » pour
 
 ## Le pipeline, en bref
 
-| Phase | Commande | Ce qu'elle fait |
-|---|---|---|
-| **Collect** | `reels-collect` | Télécharge, transcrit, capture des images — aucune dépendance LLM |
-| **Digest** | `reels-digest` | Tags + résumé par fiche, via Ollama en local |
-| **Publish** | `reels-publish` | `index.md` → `gallery.html`, la page de consultation |
-| **Graph** *(bonus)* | `reels-graph` | Ajoute les liens `[[Thème]]` pour Obsidian |
-| **Telegram** *(déclencheur)* | `reels-telegram` | Récupère les URLs du bot et appelle Collect |
+| Phase | Commande | Outils | Ce qu'elle fait |
+|---|---|---|---|
+| **Collect** | `reels-collect` | yt-dlp, Whisper, ffmpeg | Télécharge et transcrit les vidéos |
+| **Digest** | `reels-digest` | Ollama (`qwen2.5:7b`) | Tags + résumé par fiche |
+| **Publish** | `reels-publish` | — | `index.md` → `gallery.html` |
+| **Graph** *(bonus)* | `reels-graph` | — | Liens `[[Thème]]` pour Obsidian |
+| **Telegram** *(déclencheur)* | `reels-telegram` | API Telegram | Récupère les URLs, appelle Collect |
+
+> ⚠️ **Collect, Digest, Publish et Graph sont testés sur un vault réel.** Telegram a été porté vers la nouvelle structure du projet mais **pas encore vérifié en conditions réelles** depuis — teste-le prudemment (petit lot, vault de test) avant de t'y fier.
 
 Voir `schema.md` pour le détail du flux complet (diagrammes).
 

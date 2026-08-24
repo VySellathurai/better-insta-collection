@@ -41,6 +41,49 @@ La version de ce tuto ne coûte **rien de plus** qu'un abonnement Claude Pro —
 
 ---
 
+## Installation rapide — tous les outils en une fois
+
+Pressé·e ? Copie ce bloc, il installe tout d'un coup. Chaque outil est réexpliqué (pourquoi, comment vérifier qu'il marche) dans le tutoriel détaillé qui suit — reviens-y si quelque chose coince.
+
+| Outil | Pour quoi | Obligatoire ? |
+|---|---|---|
+| Homebrew | installe tout le reste | Oui |
+| ffmpeg | Collect — extraction d'images | Oui |
+| uv | fait tourner le projet Python | Oui |
+| Firefox | Collect — cookies Instagram | Oui |
+| Ollama + `qwen2.5:7b` | Digest — tags + résumé, en local | Oui |
+| Node.js | Backoffice — app Next.js | Optionnel ([Bonus](#bonus--le-backoffice-postgres--nextjs)) |
+| Docker Desktop | Backoffice — base Postgres | Optionnel ([Bonus](#bonus--le-backoffice-postgres--nextjs)) |
+| Obsidian | Carte du graphe | Optionnel ([Bonus](#bonus--la-carte-du-graphe)) |
+
+```
+# Homebrew — si pas déjà installé
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Requis : Collect (ffmpeg), le projet Python (uv), les cookies Instagram (Firefox), Digest (Ollama)
+brew install ffmpeg uv ollama
+brew install --cask firefox
+ollama pull qwen2.5:7b
+
+# Optionnel : Backoffice (Node.js + Docker), carte du graphe (Obsidian) — ignore ce que tu ne comptes pas utiliser
+brew install node
+brew install --cask docker obsidian
+
+# Le projet
+cd "$HOME/Documents"
+git clone https://github.com/TOI/reels-vault.git   # ou dézippe l'archive téléchargée
+cd reels-vault
+uv sync
+```
+
+Ensuite : ouvre Firefox et connecte-toi à Instagram (Étape 2), lance `ollama serve` avant de lancer Digest (Étape 5), et démarre Docker Desktop avant `make bo-setup` si tu utilises le backoffice.
+
+> **Des lignes rouges pendant `uv sync` ?** Souvent sans conséquence — relance `uv sync`, la deuxième tentative résout la plupart des soucis de cache.
+
+Tout est installé et tu sais ce que tu fais ? Va directement à l'[Étape 2](#étape-2--se-connecter-à-instagram). Sinon, le tutoriel détaillé ci-dessous reprend chaque outil un par un, avec les vérifications.
+
+---
+
 ## Étape 1 — Installer les outils
 
 Ouvre **Terminal** (Cmd+Espace, tape « terminal », Entrée).

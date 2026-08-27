@@ -27,8 +27,8 @@ export default async function Page({
     <div className="wrap">
       <h1>🗂️ Collections Studio</h1>
       <p className="subtitle">
-        Choisis une collection Instagram sauvegardée, puis digère-en jusqu’à 3 nouveaux posts à la
-        fois.
+        Choisis une collection Instagram sauvegardée, puis digère-en un nombre de nouveaux posts
+        de ton choix (50 max, par sécurité).
       </p>
 
       <CollectionPicker collections={collections} selected={selected} />

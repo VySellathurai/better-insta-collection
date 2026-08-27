@@ -4,13 +4,17 @@ import { mkdtempSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { JobState } from "@/types/job";
+import { DEFAULT_LIMIT, MAX_LIMIT, type JobState } from "@/types/job";
 
 import { getCollectionUrls } from "./collections";
 import { COLLECT_COOKIES, REPO_ROOT, VAULT_DIR } from "./paths";
 
 const MAX_LOG_LINES = 500;
-const HARD_CAP_PER_CLICK = 3; // fixed safety constant — NOT user-configurable
+// DEFAULT_LIMIT / MAX_LIMIT live in types/job.ts so the client form can import
+// them without pulling in this module's "server-only" guard. MAX_LIMIT is the
+// real safety boundary against tripping Instagram's rate-limiting/detection —
+// always re-enforced below, no matter what the form (or a direct Server Action
+// call) sends.
 const DIGEST_BATCH = 100; // generous: digest is 100% local/Ollama, carries none of
 // collect's Instagram rate-limit risk — also sweeps up any older not-yet-digested
 // fiches already sitting in this collection.
@@ -20,6 +24,7 @@ type Store = { state: JobState; running: boolean };
 const idleState = (): JobState => ({
   phase: "idle",
   collection: null,
+  limit: null,
   startedAt: null,
   finishedAt: null,
   logs: [],
@@ -44,29 +49,39 @@ export function getJobState(): JobState {
   return { ...store.state, logs: [...store.state.logs] };
 }
 
-export function startCollectionJob(collectionName: string): { ok: true } | { ok: false; reason: string } {
+export function startCollectionJob(
+  collectionName: string,
+  requestedLimit: number = DEFAULT_LIMIT,
+): { ok: true } | { ok: false; reason: string } {
   if (store.running) {
     return {
       ok: false,
       reason: `A job is already running for "${store.state.collection}". Wait for it to finish.`,
     };
   }
+  if (!Number.isInteger(requestedLimit) || requestedLimit < 1) {
+    return { ok: false, reason: "Limit must be a whole number of at least 1." };
+  }
+  // Clamp rather than reject: the client already clamps for UX, but this is the
+  // real enforcement point — it also covers a direct call bypassing the form.
+  const limit = Math.min(requestedLimit, MAX_LIMIT);
   store.running = true;
   store.state = {
     phase: "queued",
     collection: collectionName,
+    limit,
     startedAt: Date.now(),
     finishedAt: null,
     logs: [],
     errorMessage: null,
   };
-  void runJob(collectionName).finally(() => {
+  void runJob(collectionName, limit).finally(() => {
     store.running = false;
   });
   return { ok: true };
 }
 
-async function runJob(collectionName: string): Promise<void> {
+async function runJob(collectionName: string, limit: number): Promise<void> {
   let tmpFile: string | null = null;
   try {
     const urls = getCollectionUrls(collectionName);
@@ -80,7 +95,7 @@ async function runJob(collectionName: string): Promise<void> {
 
     store.state.phase = "collecting";
     pushLog(
-      `Collecting up to ${HARD_CAP_PER_CLICK} new video(s) from "${collectionName}" ` +
+      `Collecting up to ${limit} new video(s) from "${collectionName}" ` +
         `(${urls.length} URLs in this collection).`,
     );
     await runChild(
@@ -96,7 +111,7 @@ async function runJob(collectionName: string): Promise<void> {
         "--cookies",
         COLLECT_COOKIES,
         "--limite",
-        String(HARD_CAP_PER_CLICK),
+        String(limit),
       ],
       REPO_ROOT,
     );

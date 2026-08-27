@@ -1,9 +1,10 @@
 # Collections Studio
 
 Pick one Instagram saved collection (from `../../your_instagram_activity/saved/saved_collections.json`),
-trigger collect+digest scoped to just that collection — hard-capped at **3 new videos per click**
-(a fixed safety constant, not configurable — collect.py's yt-dlp/gallery-dl calls hit real Instagram
-endpoints) — and see the resulting digested posts.
+trigger collect+digest scoped to just that collection — you choose how many new videos per click via
+a form field, defaulting to 3, **hard-capped at 50 server-side** (collect.py's yt-dlp/gallery-dl calls
+hit real Instagram endpoints, so this ceiling is always re-enforced in `lib/job-runner.ts` regardless
+of what the form sends) — and see the resulting digested posts.
 
 Self-contained, file-based: reads/writes `../../Vault/` directly, same as the Python pipeline. No
 Postgres/Docker (unlike `../backoffice/`).
@@ -14,8 +15,11 @@ Postgres/Docker (unlike `../backoffice/`).
 cd src/collections-studio
 cp .env.example .env       # adjust paths if your layout differs
 npm install
+ln -s ../../../Vault/images public/images   # or: make cs-images-link from the repo root
 npm run dev                 # http://localhost:3100
 ```
+
+(`make cs-setup` from the repo root does all of the above, including the symlink.)
 
 Requires the Python side already set up (`make install` at the repo root, Firefox logged into
 Instagram) since this app shells out to `uv run reels-collect` / `uv run reels-digest`.
@@ -24,11 +28,14 @@ Instagram) since this app shells out to `uv run reels-collect` / `uv run reels-d
 
 - `lib/collections.ts` — parses `saved_collections.json` (handles Meta's Latin-1/UTF-8 mojibake
   export bug), lists collections, extracts a given collection's ordered URL list.
-- `lib/job-runner.ts` — in-memory background job: spawns `reels-collect` (limited to 3, scoped to
-  the selected collection via `--collection`) then `reels-digest` (same scope), tracks status/logs.
-  Only one job runs at a time.
+- `lib/job-runner.ts` — in-memory background job: spawns `reels-collect` (limited to the requested
+  count, clamped server-side to 50, scoped to the selected collection via `--collection`) then
+  `reels-digest` (same scope), tracks status/logs. Only one job runs at a time.
 - `lib/vault-parse.ts` / `lib/vault-results.ts` — reads `Vault/index.md` + `Vault/raw/*.md`,
-  filtered to fiches whose `collection:` frontmatter matches the selected collection.
+  filtered to fiches whose `collection:` frontmatter matches the selected collection; also reads
+  each fiche's `## Images` section for its extracted-frame filenames.
+- `public/images` — symlink to `../../../Vault/images`, same convention as `../backoffice/`, so
+  `next/image` can serve the extracted frames directly.
 - `app/page.tsx` — collection picker + trigger + live job status + results, all Server-Component-first.
 - `app/api/job/status/route.ts` — polled by the client to show live progress.
 

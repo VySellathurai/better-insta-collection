@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { VAULT_DIR } from "./paths";
-import { parseIndex, parseRawMetaByUrl } from "./vault-parse";
+import { parseIndex, parseRawImages, parseRawMetaByUrl } from "./vault-parse";
 
 export type DisplayPost = {
   titre: string;
@@ -11,6 +11,7 @@ export type DisplayPost = {
   auteur: string;
   themes: string[];
   contenu: string;
+  images: string[];
 };
 
 export function getCollectionResults(collectionName: string): DisplayPost[] {
@@ -21,5 +22,8 @@ export function getCollectionResults(collectionName: string): DisplayPost[] {
     return [];
   }
   const rawByUrl = parseRawMetaByUrl(join(VAULT_DIR, "raw"));
-  return parseIndex(indexText).filter((e) => rawByUrl.get(e.lien)?.collection === collectionName);
+  const imagesByUrl = parseRawImages(join(VAULT_DIR, "raw"));
+  return parseIndex(indexText)
+    .filter((e) => rawByUrl.get(e.lien)?.collection === collectionName)
+    .map((e) => ({ ...e, images: imagesByUrl.get(e.lien) ?? [] }));
 }

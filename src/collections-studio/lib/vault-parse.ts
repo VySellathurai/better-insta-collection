@@ -70,6 +70,50 @@ export function parseIndex(text: string): IndexEntry[] {
   return entries;
 }
 
+function extractSection(text: string, heading: string): string | null {
+  // No "m" flag: unlike Python's re.MULTILINE (where `\Z` still means true
+  // end-of-string), JS's `$` under "m" matches end-of-*line*, which would
+  // make the lazy `[\s\S]*?` stop after the section's first line. Matching
+  // "^" via a "(?:^|\n)" alternation instead lets us drop "m" and keep `$`
+  // meaning true end-of-string.
+  const re = new RegExp(`(?:^|\\n)## ${heading}\\n([\\s\\S]*?)(?:\\n## |$)`);
+  const m = re.exec(text);
+  return m?.[1]?.trim() ?? null;
+}
+
+/** Ported from src/backoffice/scripts/parse-vault.ts's parseRawImages(): maps
+ * source URL -> ordered list of bare image filenames (the `images/` prefix
+ * is stripped here — URL-building is a presentation concern). */
+export function parseRawImages(rawDir: string): Map<string, string[]> {
+  const imagesByUrl = new Map<string, string[]>();
+  let files: string[];
+  try {
+    files = readdirSync(rawDir).filter((f) => f.endsWith(".md"));
+  } catch {
+    return imagesByUrl;
+  }
+
+  for (const file of files) {
+    const text = readFileSync(join(rawDir, file), "utf-8");
+    const sourceMatch = /^source:\s*(\S+)/m.exec(text);
+    if (!sourceMatch || !sourceMatch[1]) continue;
+
+    const imagesBlock = extractSection(text, "Images");
+    const images: string[] = [];
+    if (imagesBlock) {
+      for (const rawLine of imagesBlock.split("\n")) {
+        const line = rawLine.trim();
+        if (line.startsWith("- ")) {
+          const path = line.slice(2).trim();
+          images.push(path.replace(/^images\//, ""));
+        }
+      }
+    }
+    imagesByUrl.set(sourceMatch[1].trim(), images);
+  }
+  return imagesByUrl;
+}
+
 /** Reads raw/*.md frontmatter, keyed by source URL — just the fields this
  * app needs (collection, for the results filter; genre/status for display). */
 export function parseRawMetaByUrl(rawDir: string): Map<string, RawMeta> {

@@ -87,6 +87,36 @@ h1 {
   margin-bottom: 16px;
 }
 
+.trigger-form {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.trigger-limit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.trigger-limit input {
+  width: 64px;
+  background: var(--chip-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 0.85rem;
+}
+
+.trigger-hint {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+
 button.trigger {
   background: var(--accent);
   color: #0f1115;
@@ -203,6 +233,34 @@ button.trigger:disabled {
   color: var(--text-dim);
   font-size: 0.8rem;
   margin-bottom: 8px;
+}
+
+.entry .images {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+  overflow-x: auto;
+}
+
+.entry .image-box {
+  position: relative;
+  height: 340px;
+  aspect-ratio: 9 / 16;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  cursor: zoom-in;
+}
+
+.entry .image-box img {
+  object-fit: cover;
+}
+
+@media (max-width: 480px) {
+  .entry .image-box {
+    height: 220px;
+  }
 }
 
 .entry p.contenu {

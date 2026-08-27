@@ -22,7 +22,7 @@ _npm_cs       = npm --prefix $(COLLECTIONS_STUDIO) run
         bo-install bo-env bo-images-link bo-setup \
         bo-db-up bo-db-down bo-db-generate bo-db-migrate bo-db-seed bo-refresh \
         bo-dev bo-build bo-start bo-lint bo-typecheck bo-check \
-        cs-install cs-env cs-setup cs-dev cs-build cs-start cs-lint cs-typecheck cs-check
+        cs-install cs-env cs-images-link cs-setup cs-dev cs-build cs-start cs-lint cs-typecheck cs-check
 
 help:
 	@echo "Usage: make <target> [VAR=value ...]"
@@ -61,9 +61,10 @@ help:
 	@echo "  bo-typecheck    tsc --noEmit"
 	@echo "  bo-check        bo-lint + bo-typecheck"
 	@echo ""
-	@echo "Collections Studio (src/collections-studio — pick a saved collection, digest up to 3 posts)"
-	@echo "  cs-setup        First-time bootstrap: install + .env"
+	@echo "Collections Studio (src/collections-studio — pick a saved collection, digest up to N posts)"
+	@echo "  cs-setup        First-time bootstrap: install, .env, images symlink"
 	@echo "  cs-install      Install Node dependencies (npm)"
+	@echo "  cs-images-link  Symlink public/images -> Vault/images"
 	@echo "  cs-dev          Run the Next.js dev server (http://localhost:3100)"
 	@echo "  cs-build        Production build"
 	@echo "  cs-start        Run the production build (after cs-build)"
@@ -200,7 +201,15 @@ cs-env:
 	@test -f $(COLLECTIONS_STUDIO)/.env || cp $(COLLECTIONS_STUDIO)/.env.example $(COLLECTIONS_STUDIO)/.env
 	@echo "$(COLLECTIONS_STUDIO)/.env ready"
 
-cs-setup: cs-install cs-env
+cs-images-link:
+	@if [ ! -L $(COLLECTIONS_STUDIO)/public/images ]; then \
+		rm -rf $(COLLECTIONS_STUDIO)/public/images; \
+		mkdir -p $(COLLECTIONS_STUDIO)/public; \
+		ln -s ../../../Vault/images $(COLLECTIONS_STUDIO)/public/images; \
+		echo "created $(COLLECTIONS_STUDIO)/public/images -> Vault/images"; \
+	fi
+
+cs-setup: cs-install cs-env cs-images-link
 	@echo "Collections Studio ready — run 'make cs-dev' and open http://localhost:3100"
 
 cs-dev:

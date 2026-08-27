@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
-import type { JobState } from "@/types/job";
+import { DEFAULT_LIMIT, type JobState } from "@/types/job";
 import { startCollectionJob } from "@/app/actions";
 
 import { TriggerButton } from "./trigger-button";
@@ -13,6 +13,7 @@ const POLL_INTERVAL_MS = 2000;
 const idleState: JobState = {
   phase: "idle",
   collection: null,
+  limit: null,
   startedAt: null,
   finishedAt: null,
   logs: [],
@@ -23,6 +24,7 @@ export function JobStatusPanel({ collection }: { collection: string }) {
   const router = useRouter();
   const [job, setJob] = useState<JobState>(idleState);
   const [triggerError, setTriggerError] = useState<string | null>(null);
+  const [limit, setLimit] = useState(DEFAULT_LIMIT);
   const [pending, startTransition] = useTransition();
   const previousPhase = useRef<JobState["phase"]>("idle");
 
@@ -57,10 +59,10 @@ export function JobStatusPanel({ collection }: { collection: string }) {
   const running = job.phase === "queued" || job.phase === "collecting" || job.phase === "digesting";
   const runningOther = running && job.collection !== collection;
 
-  const handleClick = () => {
+  const handleSubmit = () => {
     setTriggerError(null);
     startTransition(async () => {
-      const result = await startCollectionJob(collection);
+      const result = await startCollectionJob(collection, limit);
       if (!result.ok) {
         setTriggerError(result.reason);
       } else {
@@ -71,7 +73,13 @@ export function JobStatusPanel({ collection }: { collection: string }) {
 
   return (
     <div className="panel">
-      <TriggerButton disabled={pending || running} pending={pending} onClick={handleClick} />
+      <TriggerButton
+        disabled={pending || running}
+        pending={pending}
+        limit={limit}
+        onLimitChange={setLimit}
+        onSubmit={handleSubmit}
+      />
       {triggerError && <p className="trigger-error">{triggerError}</p>}
       {runningOther && (
         <p className="trigger-error">

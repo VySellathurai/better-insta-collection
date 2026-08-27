@@ -1,5 +1,7 @@
 import type { DisplayPost } from "@/lib/vault-results";
 
+import { ImageStrip } from "./image-strip";
+
 export function ResultCard({ post }: { post: DisplayPost }) {
   return (
     <article className="entry">
@@ -20,6 +22,7 @@ export function ResultCard({ post }: { post: DisplayPost }) {
         ))}
       </div>
       <div className="auteur">👤 {post.auteur}</div>
+      <ImageStrip images={post.images} alt={post.titre} />
       <p className="contenu">{post.contenu}</p>
     </article>
   );

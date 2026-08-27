@@ -175,6 +175,7 @@ def lire_fiches_raw(dossier_raw: Path) -> list[dict[str, Any]]:
                 "auteur": meta.get("auteur", "inconnu"),
                 "traite_le": meta.get("traite_le", ""),
                 "tags": meta.get("tags", ""),
+                "collection": meta.get("collection", ""),
                 "texte": texte,
             }
         )
@@ -242,6 +243,11 @@ def main() -> None:
         default=DEFAULT_BATCH,
         help=f"fiches par session (défaut: {DEFAULT_BATCH})",
     )
+    parseur.add_argument(
+        "--collection",
+        default=None,
+        help="ne traiter que les fiches de cette collection (optionnel)",
+    )
     parseur.add_argument("--dry-run", action="store_true", help="aperçu sans écrire dans index.md")
     args = parseur.parse_args()
 
@@ -262,6 +268,8 @@ def main() -> None:
 
     # Filtrer les non-traitées
     a_traiter = [f for f in toutes_fiches if f["url"] not in urls_indexees]
+    if args.collection:
+        a_traiter = [f for f in a_traiter if f["collection"] == args.collection]
 
     logger.info(
         "%d fiches raw, %d déjà indexées, %d à traiter.",

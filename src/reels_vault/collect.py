@@ -240,6 +240,36 @@ def extraire_images(
     return chemins
 
 
+def mesurer_duree(video: Path) -> float | None:
+    """Mesure la durée d'une vidéo via ffprobe.
+
+    Sert de filet de sécurité quand yt-dlp ne renseigne pas le champ
+    "duration" dans ses métadonnées (arrive pour certains reels malgré des
+    flux vidéo bien présents) : on télécharge quand même la vidéo, puis on
+    mesure sa durée directement sur le fichier plutôt que de se fier au seul
+    champ yt-dlp pour décider s'il s'agit d'une vidéo.
+    """
+    try:
+        resultat = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "csv=p=0",
+                str(video),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        return float(resultat.stdout.strip())
+    except (subprocess.SubprocessError, ValueError, OSError):
+        return None
+
+
 def ecrire_fiche(
     dossier: Path,
     vault: Path,
@@ -249,6 +279,7 @@ def ecrire_fiche(
     transcription: str,
     images: list[Path],
     genre: str,
+    collection: str | None = None,
 ) -> None:
     liens_images = []
     for p in images:
@@ -257,10 +288,11 @@ def ecrire_fiche(
         except ValueError:
             liens_images.append(f"- {p.name}")
 
+    ligne_collection = f"collection: {collection}\n" if collection else ""
     contenu = f"""---
 source: {lien}
 plateforme: Instagram
-genre: {genre}
+{ligne_collection}genre: {genre}
 auteur: {meta.get("uploader") or meta.get("channel") or "inconnu"}
 duree_s: {meta.get("duration") or ""}
 traite_le: {datetime.now():%Y-%m-%d}
@@ -313,6 +345,11 @@ def main() -> None:
         default=WHISPER_MODEL,
         help="modèle faster-whisper (tiny/base/small/medium)",
     )
+    parseur.add_argument(
+        "--collection",
+        default=None,
+        help="nom de la collection Instagram source (optionnel, écrit dans le frontmatter)",
+    )
     args = parseur.parse_args()
 
     verifier_outils()
@@ -354,14 +391,28 @@ def main() -> None:
                 erreur_meta = str(e).replace("\n", " ")[:300]
 
             audio = video = None
-            if meta.get("duration"):
-                genre = "video"
+            images: list[Path] = []
+            transcription = ""
+            genre = "carrousel"
+
+            if meta:
+                # yt-dlp a extrait des métadonnées : c'est presque toujours une
+                # vidéo (son extracteur Instagram ne gère pas les carrousels
+                # multi-images, il échoue dessus — d'où le bloc except
+                # ci-dessus). Le champ "duration" n'est pas toujours renseigné
+                # par Instagram/yt-dlp même quand il y a bien un flux vidéo :
+                # on télécharge donc la vidéo puis on mesure sa durée nous-
+                # mêmes via ffprobe si besoin, plutôt que de se fier
+                # uniquement à ce champ pour décider du genre.
                 audio, video = telecharger_media(lien, dossier_temp, nom, args.cookies)
+
+            if video is not None:
+                genre = "video"
+                duree = meta.get("duration") or mesurer_duree(video)
+                meta["duration"] = duree
                 transcription = transcrire(audio, modele)
-                images = extraire_images(video, dossier_images, nom, meta.get("duration"))
+                images = extraire_images(video, dossier_images, nom, duree)
             else:
-                genre = "carrousel"
-                transcription = ""
                 images, legende = telecharger_carrousel(lien, dossier_images, nom, args.cookies)
                 if not images:
                     raise RuntimeError(
@@ -370,7 +421,9 @@ def main() -> None:
                 if legende and not meta.get("description"):
                     meta["description"] = legende
 
-            ecrire_fiche(dossier_raw, vault, nom, lien, meta, transcription, images, genre)
+            ecrire_fiche(
+                dossier_raw, vault, nom, lien, meta, transcription, images, genre, args.collection
+            )
 
             for fichier in (audio, video):
                 if fichier and fichier.exists():

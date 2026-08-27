@@ -5,12 +5,14 @@ FILE          ?=
 LLM_MODEL     ?= qwen2.5:7b
 BATCH         ?= 25
 BACKOFFICE    ?= src/backoffice
+COLLECTIONS_STUDIO ?= src/collections-studio
 
 _cookies      = $(if $(COOKIES),--cookies $(COOKIES),)
 _whisper_model = $(if $(WHISPER_MODEL),--whisper-model $(WHISPER_MODEL),)
 _limite       = $(if $(LIMITE),--limite $(LIMITE),)
 _llm_model    = $(if $(LLM_MODEL),--llm-model $(LLM_MODEL),)
 _npm          = npm --prefix $(BACKOFFICE) run
+_npm_cs       = npm --prefix $(COLLECTIONS_STUDIO) run
 
 .DEFAULT_GOAL := help
 
@@ -19,7 +21,8 @@ _npm          = npm --prefix $(BACKOFFICE) run
         collect digest digest-dry publish graph telegram \
         bo-install bo-env bo-images-link bo-setup \
         bo-db-up bo-db-down bo-db-generate bo-db-migrate bo-db-seed bo-refresh \
-        bo-dev bo-build bo-start bo-lint bo-typecheck bo-check
+        bo-dev bo-build bo-start bo-lint bo-typecheck bo-check \
+        cs-install cs-env cs-images-link cs-setup cs-dev cs-build cs-start cs-lint cs-typecheck cs-check
 
 help:
 	@echo "Usage: make <target> [VAR=value ...]"
@@ -58,12 +61,24 @@ help:
 	@echo "  bo-typecheck    tsc --noEmit"
 	@echo "  bo-check        bo-lint + bo-typecheck"
 	@echo ""
+	@echo "Collections Studio (src/collections-studio — pick a saved collection, digest up to N posts)"
+	@echo "  cs-setup        First-time bootstrap: install, .env, images symlink"
+	@echo "  cs-install      Install Node dependencies (npm)"
+	@echo "  cs-images-link  Symlink public/images -> Vault/images"
+	@echo "  cs-dev          Run the Next.js dev server (http://localhost:3100)"
+	@echo "  cs-build        Production build"
+	@echo "  cs-start        Run the production build (after cs-build)"
+	@echo "  cs-lint         eslint ."
+	@echo "  cs-typecheck    tsc --noEmit"
+	@echo "  cs-check        cs-lint + cs-typecheck"
+	@echo ""
 	@echo "Variables (defaults shown):"
 	@echo "  VAULT=$(VAULT)"
 	@echo "  WHISPER_MODEL=$(WHISPER_MODEL) (tiny | base | small | medium)"
 	@echo "  LLM_MODEL=$(LLM_MODEL)         (qwen2.5:7b | qwen2.5:3b | mistral:7b)"
 	@echo "  BATCH=$(BATCH)                 fiches par session"
 	@echo "  BACKOFFICE=$(BACKOFFICE)       Next.js/Postgres subproject path"
+	@echo "  COLLECTIONS_STUDIO=$(COLLECTIONS_STUDIO)  Next.js collection-picker subproject path"
 
 # ── setup ────────────────────────────────────────────────────────────────────
 
@@ -174,3 +189,42 @@ bo-typecheck:
 	$(_npm) typecheck
 
 bo-check: bo-lint bo-typecheck
+
+# ── collections-studio ───────────────────────────────────────────────────────
+# Namespaced with a cs- prefix, same pattern as bo- above. File-based (reads/
+# writes Vault/ directly) — no Docker/Postgres dependency for this one.
+
+cs-install:
+	npm --prefix $(COLLECTIONS_STUDIO) install
+
+cs-env:
+	@test -f $(COLLECTIONS_STUDIO)/.env || cp $(COLLECTIONS_STUDIO)/.env.example $(COLLECTIONS_STUDIO)/.env
+	@echo "$(COLLECTIONS_STUDIO)/.env ready"
+
+cs-images-link:
+	@if [ ! -L $(COLLECTIONS_STUDIO)/public/images ]; then \
+		rm -rf $(COLLECTIONS_STUDIO)/public/images; \
+		mkdir -p $(COLLECTIONS_STUDIO)/public; \
+		ln -s ../../../Vault/images $(COLLECTIONS_STUDIO)/public/images; \
+		echo "created $(COLLECTIONS_STUDIO)/public/images -> Vault/images"; \
+	fi
+
+cs-setup: cs-install cs-env cs-images-link
+	@echo "Collections Studio ready — run 'make cs-dev' and open http://localhost:3100"
+
+cs-dev:
+	$(_npm_cs) dev
+
+cs-build:
+	$(_npm_cs) build
+
+cs-start:
+	$(_npm_cs) start
+
+cs-lint:
+	$(_npm_cs) lint
+
+cs-typecheck:
+	$(_npm_cs) typecheck
+
+cs-check: cs-lint cs-typecheck

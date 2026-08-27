@@ -34,7 +34,7 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-extend-exclude = ["src/backoffice"]
+extend-exclude = ["src/backoffice", "src/collections-studio"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "TCH"]

@@ -12,9 +12,10 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
-/** Kept in sync with collect.py's 3-frame video extraction — but note
- * carousel posts (gallery-dl) aren't capped at 3, so scripts/seed.ts
- * truncates each post's images to this many before insert. */
+/** Kept in sync with reels_pipeline/extract_images.py's 3-frame video
+ * extraction — but note carousel posts (gallery-dl) aren't capped at 3, so
+ * reels_pipeline/publish.py's publish_item() truncates each post's images
+ * to this many before insert. */
 export const MAX_IMAGES_PER_POST = 3;
 
 export const posts = pgTable(
@@ -33,11 +34,12 @@ export const posts = pgTable(
     summary: text("summary").notNull(),
     description: text("description"),
     transcript: text("transcript"),
-    sortOrder: integer("sort_order").notNull(),
+    // Nom de la collection Instagram source (src/collections-studio), NULL
+    // pour les posts venus du pipeline "vault entier" sans collection.
+    collection: text("collection"),
   },
   (t) => ({
     sourceUrlUnique: uniqueIndex("posts_source_url_unique").on(t.sourceUrl),
-    sortOrderIdx: index("posts_sort_order_idx").on(t.sortOrder),
   }),
 );
 

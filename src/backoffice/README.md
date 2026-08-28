@@ -1,11 +1,12 @@
 # Backoffice
 
-A Postgres-backed back office that displays the digested Instagram posts from `../../Vault`
-(the same data `reels-publish` renders into `Vault/gallery.html`), plus a small read-only
-JSON API on top of the database.
+A Postgres-backed back office that displays the digested Instagram posts written directly by the
+Python pipeline (`../reels_pipeline`'s `reels-pipeline`), plus a small read-only JSON API on top of
+the database.
 
-Self-contained Node/TypeScript project — isolated from the Python pipeline in
-`../reels_vault/`, sharing only the `Vault/` flat-file data contract on disk.
+Self-contained Node/TypeScript project — reads the same Postgres database the pipeline writes to,
+and `Vault/images/` on disk (via a symlink) for the extracted frames. No other coupling to the
+Python side.
 
 ## Run it end-to-end
 
@@ -21,22 +22,24 @@ ln -s ../../../Vault/images public/images
 npm run db:up          # docker compose up -d — postgres only, host port 5433
 npm run db:generate    # first run, or after editing db/schema.ts
 npm run db:migrate
-npm run db:seed         # parses ../../Vault and reloads all rows into Postgres
 npm run dev              # http://localhost:3000
 ```
 
+Then run `reels-pipeline` (see the repo root `README.md` or the root `Makefile`'s `pipeline`
+target) against the **same** `DATABASE_URL` — it upserts directly into Postgres as it processes
+each link. There is nothing to seed here: this app only ever reads.
+
 ## What's in here
 
-- `db/schema.ts` — Drizzle schema: `posts`, `themes`, `post_themes`, `post_images`.
-- `scripts/parse-vault.ts` / `scripts/seed.ts` — parses `Vault/index.md` + `Vault/raw/*.md`
-  (ported from `src/reels_vault/publish.py` and `_naming.py`) and truncate-reloads Postgres.
+- `db/schema.ts` — Drizzle schema: `posts`, `themes`, `post_themes`, `post_images`. This is the
+  schema authority — `reels-pipeline` only ever runs DML against it, never DDL/migrations.
 - `lib/queries.ts` — shared typed queries used by both the API routes and the page.
 - `app/api/posts`, `app/api/posts/[slug]`, `app/api/themes` — read-only JSON API.
 - `app/page.tsx` + `components/gallery.tsx` — the display page, fetching directly via
-  `lib/queries.ts` (not by calling its own API), reproducing `gallery.html`'s search +
-  theme-pill filtering UX.
+  `lib/queries.ts` (not by calling its own API), with search + theme-pill filtering.
 
-## Re-seeding
+## Populating Postgres
 
-Re-run `npm run db:seed` any time `Vault/` changes (e.g. after `make digest` / `make publish`
-in the repo root). It's a full truncate-and-reload each time, so it's safe to re-run.
+Postgres is populated directly by `reels-pipeline` — there is nothing to seed. Just make sure
+the pipeline's `--database-url` (or `DATABASE_URL` env var) points at the same database as this
+app's `.env`. New/updated posts show up here on the next page load (newest-processed first).

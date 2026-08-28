@@ -10,7 +10,7 @@ Tu as des centaines de Reels sauvegardés. Des restos, des adresses, des astuces
 
 À la fin de ce tuto, tu pourras demander en langage normal : *« je pars au Japon, sors-moi tout ce que j'ai gardé »* — et obtenir la liste, avec les adresses, les horaires et les prix.
 
-Le principe : chaque vidéo est **collectée** (téléchargée et transcrite), **digérée** (résumée et catégorisée), puis **publiée** dans une page consultable hors ligne. Et une fois le système en place, tu partages un Reel depuis ton téléphone et il s'ajoute tout seul pendant la nuit.
+Le principe : chaque vidéo est **collectée et transcrite**, ses **images extraites**, **enrichie** (résumée et catégorisée), puis **publiée directement dans une base de données** consultable depuis une page web (le backoffice). Et une fois le système en place, tu partages un Reel depuis ton téléphone et il s'ajoute tout seul pendant la nuit.
 
 ---
 
@@ -28,14 +28,14 @@ La version de ce tuto ne coûte **rien de plus** qu'un abonnement Claude Pro —
 | Transcription par API | **Whisper en local** | 0 € |
 | Téléchargement des vidéos | **yt-dlp** | 0 € |
 
-**La collecte et la digestion (Collect + Digest) ne consomment aucun quota Claude** : tout tourne en local via Whisper et Ollama. Le seul moment où Claude entre en jeu, c'est quand tu **interroges** ta base en langage naturel (Étape 8) — et là, un abonnement Pro (voire le niveau gratuit, pour un usage occasionnel) suffit largement, puisque tu ne fais lire que l'index condensé, jamais les centaines de fiches brutes.
+**Le pipeline (collecte, transcription, extraction d'images, enrichissement) ne consomme aucun quota Claude** : tout tourne en local via Whisper et Ollama. Le seul moment où Claude entre en jeu, c'est quand tu **interroges** ta base en langage naturel (Étape 7) — et là, un abonnement Pro (voire le niveau gratuit, pour un usage occasionnel) suffit largement, puisque tu ne fais lire que les résumés condensés, jamais les transcriptions complètes.
 
 ---
 
 ## Ce qu'il te faut
 
 - Un Mac (Apple Silicon ou Intel)
-- Idéalement un abonnement **Claude Pro** (facultatif — seulement pour interroger ta base en langage naturel à l'Étape 8)
+- Idéalement un abonnement **Claude Pro** (facultatif — seulement pour interroger ta base en langage naturel à l'Étape 7)
 - **Homebrew**, le gestionnaire de paquets de macOS
 - Un iPhone, pour la partie « envoyer depuis son téléphone » (facultatif)
 
@@ -48,26 +48,25 @@ Pressé·e ? Copie ce bloc, il installe tout d'un coup. Chaque outil est réexpl
 | Outil | Pour quoi | Obligatoire ? |
 |---|---|---|
 | Homebrew | installe tout le reste | Oui |
-| ffmpeg | Collect — extraction d'images | Oui |
+| ffmpeg | pipeline — extraction d'images | Oui |
 | uv | fait tourner le projet Python | Oui |
-| Firefox | Collect — cookies Instagram | Oui |
-| Ollama + `qwen2.5:7b` | Digest — tags + résumé, en local | Oui |
-| Node.js | Backoffice — app Next.js | Optionnel ([Bonus](#bonus--le-backoffice-postgres--nextjs)) |
-| Docker Desktop | Backoffice — base Postgres | Optionnel ([Bonus](#bonus--le-backoffice-postgres--nextjs)) |
-| Obsidian | Carte du graphe | Optionnel ([Bonus](#bonus--la-carte-du-graphe)) |
+| Firefox | pipeline — cookies Instagram | Oui |
+| Ollama + `qwen2.5:7b` | pipeline — tags + résumé, en local | Oui |
+| Node.js | Backoffice — app Next.js | Oui (c'est la page que tu consultes au quotidien) |
+| Docker Desktop | Backoffice — base Postgres | Oui |
 
 ```
 # Homebrew — si pas déjà installé
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-# Requis : Collect (ffmpeg), le projet Python (uv), les cookies Instagram (Firefox), Digest (Ollama)
+# Le pipeline : ffmpeg, le projet Python (uv), les cookies Instagram (Firefox), Ollama
 brew install ffmpeg uv ollama
 brew install --cask firefox
 ollama pull qwen2.5:7b
 
-# Optionnel : Backoffice (Node.js + Docker), carte du graphe (Obsidian) — ignore ce que tu ne comptes pas utiliser
+# Le backoffice : Node.js + Docker (Postgres) — c'est ce que tu ouvres pour consulter ta base
 brew install node
-brew install --cask docker obsidian
+brew install --cask docker
 
 # Le projet
 cd "$HOME/Documents"
@@ -76,7 +75,7 @@ cd reels-vault
 uv sync
 ```
 
-Ensuite : ouvre Firefox et connecte-toi à Instagram (Étape 2), lance `ollama serve` avant de lancer Digest (Étape 5), et démarre Docker Desktop avant `make bo-setup` si tu utilises le backoffice.
+Ensuite : ouvre Firefox et connecte-toi à Instagram (Étape 2), lance `ollama serve` avant de lancer le pipeline (Étape 4), et démarre Docker Desktop avant `make bo-setup` (Étape 5).
 
 > **Des lignes rouges pendant `uv sync` ?** Souvent sans conséquence — relance `uv sync`, la deuxième tentative résout la plupart des soucis de cache.
 
@@ -170,97 +169,77 @@ Deux fichiers t'intéressent :
 - `saved_posts.json` — tes posts sauvegardés
 - `saved_collections.json` — tes posts rangés en collections
 
-> Traite les deux, l'un après l'autre. Collect tient un journal et ne retraitera jamais deux fois la même vidéo.
+> Traite les deux, l'un après l'autre. Le pipeline vérifie dans la base ce qui a déjà été publié et ne retraitera jamais deux fois la même vidéo.
 
 ---
 
-## Étape 4 — Collect : la récolte
+## Étape 4 — Lancer le pipeline
 
-C'est la phase purement mécanique du pipeline — **aucune dépendance à un LLM**. Pour chaque lien :
+Une seule commande, `reels-pipeline`, fait tout le travail pour chaque lien, dans l'ordre :
 
-1. récupère la description et les métadonnées via **yt-dlp**
-2. télécharge l'audio et le transcrit en local avec **Whisper**
-3. extrait trois images de la vidéo
-4. écrit une fiche Markdown dans `Vault/raw/` (tags vides pour l'instant — Digest s'en charge à l'étape suivante)
-5. note son avancement dans `Vault/journal.json`, pour pouvoir reprendre après une interruption
+1. récupère la description et les métadonnées via **yt-dlp**, télécharge l'audio et le transcrit en local avec **Whisper**
+2. extrait trois images de la vidéo (ou télécharge les images du carrousel s'il n'y a pas de vidéo)
+3. génère 3 tags de catégorisation et un résumé concret via un modèle **Ollama en local** (titre, auteur, thèmes, contenu) — **aucune consommation de quota Claude**
+4. **publie directement le résultat dans Postgres** (voir [Étape 5](#étape-5--consulter-sa-base--le-backoffice) pour la consulter)
+
+Avant de lancer le pipeline, la base doit exister — fais au moins une fois `make bo-setup` (voir l'étape suivante) pour démarrer Postgres et appliquer les migrations.
 
 **Commence par 10 vidéos**, jamais par la totalité, depuis le dossier du projet :
 
 ```
 cd "$HOME/Documents/reels-vault"
-uv run reels-collect "CHEMIN/VERS/saved_posts.json" --vault "./Vault" --cookies firefox --limite 10
+uv run reels-pipeline "CHEMIN/VERS/saved_posts.json" --vault "./Vault" --cookies firefox --limite 10
 ```
 
-Le premier lancement télécharge le modèle Whisper (500 Mo, une seule fois) — plusieurs minutes de silence, c'est normal.
+Le premier lancement télécharge le modèle Whisper (500 Mo, une seule fois) — plusieurs minutes de silence, c'est normal. `ollama serve` doit tourner en arrière-plan (lance-le une fois, il continue ensuite tout seul).
 
-> **Terminal te demande l'accès à un dossier (Téléchargements, Documents…) ?** C'est la protection « Accès complet au disque » / permissions par dossier de macOS. Autorise l'accès, sinon `reels-collect` ne pourra ni lire ton export ni écrire dans `Vault`. Tu peux gérer ça a posteriori dans **Réglages Système → Confidentialité et sécurité → Fichiers et dossiers**.
+> **Terminal te demande l'accès à un dossier (Téléchargements, Documents…) ?** C'est la protection « Accès complet au disque » / permissions par dossier de macOS. Autorise l'accès, sinon `reels-pipeline` ne pourra ni lire ton export ni écrire dans `Vault`. Tu peux gérer ça a posteriori dans **Réglages Système → Confidentialité et sécurité → Fichiers et dossiers**.
 
-Ouvre ensuite une fiche dans `Vault/raw/` et **lis la section « Transcription audio »**. C'est le moment décisif :
+Ouvre ensuite le backoffice (Étape 5) et **lis le résumé généré pour une des premières vidéos**. C'est le moment décisif :
 
-- **Elle est riche et cohérente** → parfait, tout le contenu utile est dans le texte. Tu peux lancer la totalité.
-- **Elle est vide ou incompréhensible** → tes Reels sont sur musique de fond, l'information est dans le texte incrusté à l'image. Il faudra faire lire les images extraites par Claude, ce qui consomme beaucoup plus de quota.
+- **Il est riche et cohérent** → parfait, tout le contenu utile est dans le texte. Tu peux lancer la totalité.
+- **Il est vide ou incohérent** → tes Reels sont sur musique de fond, l'information est dans le texte incrusté à l'image. Il faudra faire lire les images extraites par Claude, ce qui consomme beaucoup plus de quota.
 
-Si le test est concluant, lance tout en retirant `--limite 10`. Compter **20 à 40 secondes par vidéo** : environ 1 h 30 pour 200 Reels. Tu peux couper avec `Ctrl+C` et relancer la même commande plus tard, il reprend où il s'était arrêté.
+Si le test est concluant, lance tout en retirant `--limite 10`. Compter **20 à 40 secondes par vidéo** : environ 1 h 30 pour 200 Reels. Tu peux couper avec `Ctrl+C` et relancer la même commande plus tard, il reprend où il s'était arrêté (les vidéos déjà publiées en base ne sont jamais retraitées).
 
 > **Beaucoup d'échecs sur des liens en `/p/` ?** Ce sont des carrousels (des photos, pas des vidéos) : `gallery-dl` prend le relais, à condition de l'avoir installé à l'étape 1. Et si tes liens en échec commencent par `B5`, `B6`… ce sont des posts de 2019-2020, souvent supprimés depuis. Irrécupérables, et sans grande valeur.
 
----
-
-## Étape 5 — Digest : tags et résumé (Ollama, en local)
-
-À ce stade, tu as des centaines de fiches brutes, longues et brouillonnes, sans tags. Digest les condense automatiquement, **en local, sans consommer une miette de quota Claude** : pour chaque fiche, un modèle Ollama génère 3 tags de catégorisation et un résumé concret (titre, auteur, thèmes, contenu), patche les tags dans la fiche brute, et ajoute une entrée dans `index.md`.
-
-Installe Ollama et le modèle par défaut :
-
-```
-brew install ollama
-ollama pull qwen2.5:7b
-ollama serve
-```
-
-`ollama serve` doit rester actif — laisse cet onglet Terminal ouvert (ou lance-le une fois, il tourne ensuite en arrière-plan).
-
-Dans un **nouvel** onglet Terminal :
-
-```
-cd "$HOME/Documents/reels-vault"
-uv run reels-digest --vault "./Vault" --batch 25
-```
-
-Chaque lancement traite jusqu'à 25 fiches (`--batch`) et **reprend automatiquement là où il s'est arrêté** — relance la même commande pour continuer jusqu'à ce qu'il n'y ait plus rien à faire. `--dry-run` affiche combien de fiches restent, sans rien écrire.
-
 > **Mac avec moins de 16 Go de RAM ?** `--llm-model qwen2.5:3b` (après `ollama pull qwen2.5:3b`) est nettement plus rapide, un peu moins précis sur les résumés longs.
 
-**Pourquoi un index plutôt que d'interroger les fiches brutes ?** Parce que faire relire des centaines de fiches complètes à chaque question épuiserait ton quota Claude en trois requêtes. L'index tient dans une fraction de la place et suffit à 90 % des questions.
-
-**Ne décide pas des catégories à l'avance.** Le prompt de Digest déduit les thèmes du contenu lui-même plutôt que de piocher dans une liste prédéfinie — tu découvres ce que tu sauvegardes réellement, et c'est rarement ce qu'on croit.
+**Ne décide pas des catégories à l'avance.** Le prompt d'enrichissement déduit les thèmes du contenu lui-même plutôt que de piocher dans une liste prédéfinie — tu découvres ce que tu sauvegardes réellement, et c'est rarement ce qu'on croit.
 
 ---
 
-## Étape 6 — Publish : une page pour consulter
+## Étape 5 — Consulter sa base : le backoffice
 
-`reels-publish` lit `Vault/index.md` et écrit `Vault/gallery.html` : une page autonome avec recherche instantanée, filtres par thème, galerie d'images et liens cliquables, qui fonctionne hors ligne et sans consommer une miette de quota.
+Le pipeline écrit directement dans une base **Postgres** (via Docker) ; le **backoffice**, une petite app **Next.js** dans `src/backoffice/`, la sert avec recherche instantanée, filtres par thème, galerie d'images, et une **API JSON en lecture seule** (`/api/posts`, `/api/posts/:slug`, `/api/themes`) si tu veux brancher un autre outil dessus un jour.
 
-Lance-le depuis le Terminal :
-
-```
-cd "$HOME/Documents/reels-vault"
-uv run reels-publish --vault "./Vault"
-```
-
-Il affiche le nombre d'entrées générées et le chemin de sortie :
+Installe **Node.js** et **Docker Desktop** (gratuits) si ce n'est pas déjà fait, puis lance Docker Desktop une fois pour qu'il tourne en arrière-plan.
 
 ```
-gallery.html regenere avec 247 entrees -> /Users/toi/Documents/reels-vault/Vault/gallery.html
+brew install node
+brew install --cask docker
 ```
 
-Ouvre ensuite `Vault/gallery.html` d'un double-clic dans le Finder. **C'est ce que tu utiliseras au quotidien.**
+Depuis la racine du projet, un seul démarrage suffit (installe les dépendances Node, démarre Postgres, applique les migrations) :
 
-> À chaque fois que `index.md` change (après une session Digest), relance `uv run reels-publish --vault "./Vault"` pour regénérer la page — ou enchaîne les deux commandes à la suite dans le même terminal.
+```
+make bo-setup
+```
+
+Ensuite :
+
+```
+make bo-dev
+```
+
+Ouvre **http://localhost:3000**. Les nouvelles vidéos apparaissent dès que le pipeline (Étape 4) les a publiées — pas besoin de resynchroniser quoi que ce soit.
+
+> `make bo-db-down` arrête Postgres quand tu as fini — tes données restent sur le disque (volume Docker), rien n'est perdu, `make bo-db-up` les retrouve au prochain démarrage.
 
 ---
 
-## Étape 7 — Envoyer une vidéo depuis son téléphone
+## Étape 6 — Envoyer une vidéo depuis son téléphone
 
 > ⚠️ `reels-telegram` a été porté vers la nouvelle structure du projet mais pas encore re-testé en conditions réelles. Vérifie qu'il fonctionne chez toi avant de compter dessus au quotidien.
 
@@ -405,30 +384,26 @@ launchctl load "$HOME/Library/LaunchAgents/com.vault.inbox.plist"
 
 > `launchd` rattrape les exécutions manquées au prochain démarrage/réveil. Les liens envoyés quand le Mac est éteint ne sont pas perdus — ils attendent côté Telegram.
 
-**Digest et Publish restent des étapes à part** — inbox.sh ne fait que collecter. Relance-les à la main quand tu veux mettre ta base à jour :
+`reels-telegram` appelle `reels-pipeline` en interne pour chaque URL trouvée — collecte, transcription, images, enrichissement et publication en base se font en une seule passe, sans étape manuelle à relancer derrière.
 
-```
-uv run reels-digest --vault "./Vault" && uv run reels-publish --vault "./Vault"
-```
-
-Comme elles ne consomment aucun quota Claude et tournent en quelques secondes à minutes, tu peux aussi dupliquer le `.plist` ci-dessus (avec un `Label` différent et un script qui enchaîne ces deux commandes) si tu veux que toute la chaîne tourne sans y penser.
-
-**La boucle est bouclée** : tu partages depuis ton lit, ton Mac transcrit le soir, l'index se met à jour quand tu relances Digest.
+**La boucle est bouclée** : tu partages depuis ton lit, ton Mac transcrit et publie le soir, la vidéo apparaît directement dans le backoffice au matin.
 
 ---
 
-## Étape 8 — Interroger sa base
+## Étape 7 — Interroger sa base
 
-Crée un fichier `CLAUDE.md` à la racine du Vault. Claude le lit automatiquement au début de chaque session :
+Ta base vit maintenant dans Postgres, servie par le backoffice (Étape 5) via une **API JSON en lecture seule** — plus de fichier `index.md` à faire lire directement à Claude. Deux façons d'interroger le contenu :
+
+**Avec Claude Code**, depuis le dossier du projet, en laissant `make bo-dev` tourner dans un autre onglet : crée un fichier `CLAUDE.md` à la racine du projet pour qu'il sache où chercher :
 
 ```
-- Ce dossier est une base de vidéos Instagram que j'ai sauvegardées.
-- Pour toute question sur mon contenu, commence TOUJOURS par lire index.md.
-- N'ouvre les fiches complètes de raw/ que si index.md ne suffit pas.
-- Ne mentionne jamais un lieu, un titre ou un conseil qui ne vient pas de mes
-  fiches. Si je n'ai rien sur un sujet, dis-le simplement.
-- Après toute modification de index.md, régénère gallery.html
-  (uv run reels-publish --vault ./Vault).
+- Ce projet gère une base de vidéos Instagram que j'ai sauvegardées, servie par
+  le backoffice Next.js sur http://localhost:3000.
+- Pour toute question sur mon contenu, interroge l'API en lecture seule :
+  GET /api/posts?q=...&theme=...  et  GET /api/themes.
+  Utilise q/theme pour filtrer côté serveur plutôt que de tout récupérer.
+- Ne mentionne jamais un lieu, un titre ou un conseil qui ne vient pas d'un post
+  renvoyé par l'API. Si je n'ai rien sur un sujet, dis-le simplement.
 - Réponds en français.
 ```
 
@@ -440,69 +415,22 @@ Tu peux alors demander directement :
 
 > Ressors-moi les pâtisseries parisiennes, classées par arrondissement.
 
-**Depuis ton téléphone** : dépose `index.md` et `gallery.html` sur Google Drive, et interroge-les depuis l'app Claude avec le connecteur Drive activé.
+**Directement dans le backoffice**, sans passer par Claude : la recherche et les filtres par thème (http://localhost:3000) couvrent déjà la plupart des questions ponctuelles.
+
+> **Ce qui change par rapport à l'ancienne version de ce tuto** : sans fichier statique (`index.md`/`gallery.html`) à déposer sur Google Drive, interroger sa base **depuis son téléphone** demande maintenant soit une session Claude Code à distance, soit d'ouvrir directement `http://localhost:3000` depuis le Mac. Si ce cas d'usage te manque, `GET /api/posts` reste une API HTTP classique — n'importe quel outil qui sait faire une requête peut la lire.
 
 ---
 
-## Bonus — La carte du graphe
+## Bonus — Collections Studio
 
-C'est l'image qui a fait circuler le projet : un nuage de points reliés, chaque point une vidéo, chaque gros nœud un thème.
-
-Installe **Obsidian** (gratuit) :
+Envie de ne relancer le pipeline que sur **une collection Instagram précise** (celles que tu t'es fabriquées dans l'app, pas tous tes posts sauvegardés d'un coup), avec un nombre de vidéos borné à chaque clic pour ne pas se faire repérer par Instagram ? `src/collections-studio/`, une autre petite app Next.js, ajoute cette UI par-dessus le même pipeline et la même base Postgres.
 
 ```
-brew install --cask obsidian
+make cs-setup
+make cs-dev
 ```
 
-Au lancement, choisis **« Ouvrir un dossier comme coffre »** et sélectionne ton `Vault` — pas le coffre de démonstration créé par défaut.
-
-Lance ensuite `reels-graph`, qui ajoute les liens `[[Thème]]` à chaque fiche et crée une note par thème :
-
-```
-cd "$HOME/Documents/reels-vault"
-uv run reels-graph --vault "./Vault"
-```
-
-Puis `Cmd+G` dans Obsidian. Monte **Repel** dans les réglages « Forces » pour aérer, et crée un groupe `path:themes` en couleur vive pour faire ressortir les thèmes.
-
-**Sois honnête avec toi-même** : c'est superbe, ça fait un excellent visuel, mais on s'en sert peu au quotidien. La page `gallery.html` avec ses filtres est bien plus efficace pour retrouver quelque chose. Le graphe, c'est l'affiche du projet.
-
----
-
-## Bonus — Le backoffice (Postgres + Next.js)
-
-`gallery.html` suffit largement pour un usage perso. Mais le projet inclut aussi un **backoffice optionnel**, dans `src/backoffice/` : les mêmes données, rechargées dans une vraie base **Postgres** (via Docker) et servies par une petite app **Next.js** — même recherche, mêmes filtres par thème, plus une **API JSON en lecture seule** (`/api/posts`, `/api/posts/:slug`, `/api/themes`) si tu veux brancher un autre outil dessus un jour.
-
-Il ne touche jamais à `Vault/` : il ne fait que le *lire* pour remplir sa propre base, à la demande.
-
-Installe **Node.js** et **Docker Desktop** (gratuits), puis lance Docker Desktop une fois pour qu'il tourne en arrière-plan.
-
-```
-brew install node
-brew install --cask docker
-```
-
-Depuis la racine du projet, un seul démarrage suffit :
-
-```
-make bo-setup
-```
-
-Cette commande installe les dépendances Node, démarre Postgres, applique les migrations et charge tes données — à ne faire qu'une fois. Ensuite :
-
-```
-make bo-dev
-```
-
-Ouvre **http://localhost:3000**. Tu y retrouves la même page que `gallery.html`, mais servie depuis Postgres.
-
-**Après une session Digest**, une seule commande resynchronise `gallery.html` *et* Postgres :
-
-```
-make bo-refresh
-```
-
-> `make bo-db-down` arrête Postgres quand tu as fini — tes données restent sur le disque (volume Docker), rien n'est perdu, `make bo-db-up` les retrouve au prochain démarrage.
+Ouvre **http://localhost:3100** — choisis une collection, clique, regarde les résultats apparaître au fur et à mesure. Détails dans `src/collections-studio/README.md`.
 
 ---
 
@@ -520,7 +448,7 @@ make bo-refresh
 
 **Ce n'est pas de la magie, c'est de la transcription.** Si tes Reels n'ont pas de voix off, il n'y aura pas grand-chose à extraire — vérifie sur 10 vidéos avant d'en lancer 300.
 
-**Digest dépend de la puissance de ton Mac, pas d'un quota.** Un gros lot (des milliers de fiches) prendra simplement plus longtemps en local — bascule sur `qwen2.5:3b` si c'est trop lent. Les quotas Claude n'entrent en jeu qu'à l'Étape 8, pour interroger l'index déjà condensé.
+**L'enrichissement (étape 3 du pipeline) dépend de la puissance de ton Mac, pas d'un quota.** Un gros lot (des milliers de vidéos) prendra simplement plus longtemps en local — bascule sur `qwen2.5:3b` si c'est trop lent. Les quotas Claude n'entrent en jeu qu'à l'Étape 7, pour interroger les résumés déjà condensés.
 
 **Instagram limite le rythme.** Sur plusieurs centaines de posts, mieux vaut procéder par lots de 50 étalés sur quelques jours.
 
@@ -530,28 +458,29 @@ make bo-refresh
 
 ## Le pipeline, en bref
 
-| Phase | Commande | Outils | Ce qu'elle fait |
+| Étape | Commande | Outils | Ce qu'elle fait |
 |---|---|---|---|
-| **Collect** | `reels-collect` | yt-dlp, Whisper, ffmpeg | Télécharge et transcrit les vidéos |
-| **Digest** | `reels-digest` | Ollama (`qwen2.5:7b`) | Tags + résumé par fiche |
-| **Publish** | `reels-publish` | — | `index.md` → `gallery.html` |
-| **Graph** *(bonus)* | `reels-graph` | — | Liens `[[Thème]]` pour Obsidian |
-| **Telegram** *(déclencheur)* | `reels-telegram` | API Telegram | Récupère les URLs, appelle Collect |
-| **Backoffice** *(bonus, optionnel)* | `make bo-setup` / `make bo-dev` | Next.js, Postgres, Docker | `index.md` + `raw/` → Postgres, page web + API JSON |
+| **1· collect** | `reels-pipeline` | yt-dlp, Whisper | Métadonnées + audio + transcription |
+| **2· images** | `reels-pipeline` | ffmpeg, gallery-dl | 3 captures vidéo (ou carrousel) |
+| **3· enrich** | `reels-pipeline` | Ollama (`qwen2.5:7b`) | Tags + résumé |
+| **4· publish** | `reels-pipeline` | asyncpg | Upsert asynchrone dans Postgres |
+| **Telegram** *(déclencheur)* | `reels-telegram` | API Telegram | Récupère les URLs, appelle le pipeline |
+| **Backoffice** | `make bo-setup` / `make bo-dev` | Next.js, Postgres, Docker | Page web + API JSON en lecture seule |
+| **Collections Studio** *(bonus)* | `make cs-setup` / `make cs-dev` | Next.js | Pipeline scopé à une collection, UI dédiée |
 
-> ⚠️ **Collect, Digest, Publish et Graph sont testés sur un vault réel.** Telegram a été porté vers la nouvelle structure du projet mais **pas encore vérifié en conditions réelles** depuis — teste-le prudemment (petit lot, vault de test) avant de t'y fier.
+> ⚠️ **Le pipeline (`reels-pipeline`) est testé sur une base réelle.** Telegram a été porté vers la nouvelle structure du projet mais **pas encore vérifié en conditions réelles** depuis — teste-le prudemment (petit lot, base de test) avant de t'y fier.
 
-Voir `schema.md` pour le détail du flux complet (diagrammes, modèle de données du backoffice).
+Voir `schema.md` pour le détail du flux complet (diagrammes, modèle de données Postgres).
 
 ## Les fichiers
 
-- **`src/reels_vault/collect.py`** — récolte et transcription
-- **`src/reels_vault/digest.py`** — tags et résumé (Ollama)
-- **`src/reels_vault/publish.py`** — relit `Vault/index.md` et régénère `Vault/gallery.html`
-- **`src/reels_vault/graph.py`** — création des liens pour Obsidian
-- **`src/reels_vault/telegram.py`** — récupère les URLs depuis le bot Telegram et appelle Collect
-- **`src/reels_vault/_ollama.py`** / **`_naming.py`** — code partagé entre les phases
-- **`src/backoffice/`** — backoffice optionnel (Next.js + Postgres) ; voir `src/backoffice/README.md` pour le détail
+- **`src/reels_pipeline/collect.py`** / **`extract_images.py`** / **`enrich.py`** — les 3 premières étapes
+- **`src/reels_pipeline/publish.py`** — étape 4 : upsert asynchrone dans Postgres
+- **`src/reels_pipeline/cli.py`** — l'orchestrateur async, point d'entrée `reels-pipeline`
+- **`src/reels_pipeline/telegram.py`** — récupère les URLs depuis le bot Telegram et appelle le pipeline
+- **`src/reels_pipeline/_ollama.py`** / **`_naming.py`** — code partagé entre les étapes
+- **`src/backoffice/`** — backoffice (Next.js + Postgres) ; voir `src/backoffice/README.md` pour le détail
+- **`src/collections-studio/`** — pipeline scopé à une collection (bonus) ; voir `src/collections-studio/README.md`
 - **`pyproject.toml`** — dépendances et commandes `reels-*` (`uv sync` pour installer)
 - **`.env.example`** — modèle du fichier de configuration Telegram (copier en `Vault/.env` et remplir)
 
@@ -560,20 +489,20 @@ Voir `schema.md` pour le détail du flux complet (diagrammes, modèle de donnée
 ## Commandes utiles
 
 - **`make install`** — installe les dépendances Python
-- **`make collect FILE=liens.txt [COOKIES=firefox] [LIMITE=20]`** — lance Collect sur un fichier de liens
-- **`make digest [LLM_MODEL=qwen2.5:7b] [BATCH=25]`** — lance Digest (tags + résumé)
-- **`make digest-dry`** — aperçu de Digest, sans écriture
-- **`make publish`** — régénère `gallery.html`
-- **`make graph`** — crée les liens Obsidian
+- **`make pipeline FILE=liens.txt [COOKIES=firefox] [LIMIT=20] [DRY_RUN=1]`** — lance le pipeline sur un fichier de liens
 - **`make telegram`** — lance le bot Telegram (équivalent de `inbox.sh`)
 - **`make check`** — lint + typecheck (identique à la CI)
 
-Backoffice (`src/backoffice/`, optionnel) :
+Backoffice (`src/backoffice/`) :
 
-- **`make bo-setup`** — première installation : dépendances, Postgres, migrations, chargement des données
+- **`make bo-setup`** — première installation : dépendances, Postgres, migrations
 - **`make bo-dev`** — lance le backoffice sur http://localhost:3000
-- **`make bo-refresh`** — régénère `gallery.html` *et* recharge Postgres, en une commande
 - **`make bo-db-up`** / **`make bo-db-down`** — démarre / arrête Postgres (Docker)
 - **`make bo-check`** — lint + typecheck du backoffice
+
+Collections Studio (`src/collections-studio/`, bonus) :
+
+- **`make cs-setup`** — première installation : dépendances, symlink images
+- **`make cs-dev`** — lance Collections Studio sur http://localhost:3100
 
 `make help` liste toutes les commandes disponibles, avec leurs variables.

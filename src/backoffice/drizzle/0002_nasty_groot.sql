@@ -1,0 +1,1 @@
+ALTER TABLE "posts" DROP COLUMN "sort_order";

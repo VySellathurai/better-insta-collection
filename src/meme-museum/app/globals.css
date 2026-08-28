@@ -85,6 +85,69 @@ header .subtitle {
   background: var(--panel);
 }
 
+/* Hover (web) / long-press (mobile) peek layer — see components/photo-album.tsx
+ * and components/tile-overlay.tsx. Purely CSS-driven visibility: the overlay
+ * itself never intercepts pointer/touch events (pointer-events: none), only
+ * the underlying <a> (already the whole tile) does, so a normal click/tap
+ * still navigates exactly as before. */
+.tile-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 8px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0) 60%);
+  opacity: 0;
+  transition: opacity 150ms ease;
+  pointer-events: none;
+}
+
+/* Only real hover-capable pointers (a mouse/trackpad) reveal on hover — a
+ * touchscreen tap must not "stick" the overlay open the way CSS :hover
+ * alone would on some mobile browsers. Touch devices get the long-press
+ * reveal below instead. */
+@media (hover: hover) {
+  a.react-photo-album--photo:hover .tile-overlay {
+    opacity: 1;
+  }
+}
+
+a.react-photo-album--photo:focus-visible .tile-overlay {
+  opacity: 1;
+}
+
+a.react-photo-album--photo[data-peek="true"] .tile-overlay {
+  opacity: 1;
+}
+
+.tile-overlay-title {
+  margin: 0;
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.tile-overlay-tags {
+  margin: 0;
+  color: var(--accent);
+  font-size: 0.7rem;
+  line-height: 1.3;
+}
+
+.tile-overlay-text {
+  margin: 0;
+  color: #e8e9ecdd;
+  font-size: 0.7rem;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .empty {
   text-align: center;
   color: var(--text-dim);

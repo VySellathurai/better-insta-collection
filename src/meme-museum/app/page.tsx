@@ -28,6 +28,9 @@ export default async function HomePage({
       src: `/images/${post.cover}`,
       title: post.title,
       href: post.sourceUrl,
+      description: post.description,
+      summary: post.summary,
+      tags: post.tags,
     }));
 
   // Preserves the active tag filter across page navigation.

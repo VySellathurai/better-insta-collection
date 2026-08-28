@@ -4,12 +4,58 @@ import Image from "next/image";
 import { ColumnsPhotoAlbum } from "react-photo-album";
 import "react-photo-album/columns.css";
 
+import { TileOverlay } from "./tile-overlay";
+
 export type AlbumPhoto = {
   id: string;
   src: string;
   title: string;
   href: string;
+  description: string | null;
+  summary: string;
+  tags: string[];
 };
+
+const LONG_PRESS_MS = 500;
+
+// Long-press-to-peek, implemented imperatively (no React state) directly on
+// the wrapper <a> react-photo-album renders (via componentsProps.link) —
+// render.image only controls the inner image slot, not the anchor itself.
+// touchstart arms a timer that flips a data-peek attribute (purely CSS-driven
+// reveal, see .tile-overlay[data-peek] in globals.css); touchmove/touchcancel
+// (e.g. a scroll) abort it; touchend clears the timer and, if the hold
+// actually reached the threshold, calls preventDefault() so the tap-to-
+// navigate click that would otherwise follow doesn't fire — the user peeked
+// and let go, they didn't ask to leave the page. A normal short tap never
+// reaches the timeout, so it navigates exactly as before.
+function armLongPress(e: React.TouchEvent<HTMLAnchorElement>): void {
+  const el = e.currentTarget;
+  const timer = window.setTimeout(() => {
+    el.dataset.peek = "true";
+  }, LONG_PRESS_MS);
+  el.dataset.pressTimer = String(timer);
+}
+
+function cancelLongPress(e: React.TouchEvent<HTMLAnchorElement>): void {
+  const el = e.currentTarget;
+  if (el.dataset.pressTimer) {
+    window.clearTimeout(Number(el.dataset.pressTimer));
+    delete el.dataset.pressTimer;
+  }
+  delete el.dataset.peek;
+}
+
+function releaseLongPress(e: React.TouchEvent<HTMLAnchorElement>): void {
+  const el = e.currentTarget;
+  if (el.dataset.pressTimer) {
+    window.clearTimeout(Number(el.dataset.pressTimer));
+    delete el.dataset.pressTimer;
+  }
+  if (el.dataset.peek) {
+    e.preventDefault();
+    delete el.dataset.peek;
+  }
+}
 
 // Real Instagram crops every grid tile to an equal square regardless of the
 // source image's real proportions — so every photo gets a FORCED 1:1 ratio
@@ -29,6 +75,9 @@ export function PhotoAlbum({ photos }: { photos: AlbumPhoto[] }) {
         height: 1,
         title: p.title,
         href: p.href,
+        description: p.description,
+        summary: p.summary,
+        tags: p.tags,
       }))}
       render={{
         // The library's own .react-photo-album--photo wrapper has NO explicit
@@ -41,19 +90,38 @@ export function PhotoAlbum({ photos }: { photos: AlbumPhoto[] }) {
         // intrinsic aspect-ratio (always 1/1, since every photo is forced
         // square above) breaks that circular dependency.
         image: (_props, { photo, width, height }) => (
-          <Image
-            src={photo.src}
-            alt={photo.title ?? ""}
-            width={width}
-            height={height}
-            style={{ width: "100%", height: "auto", aspectRatio: `${width} / ${height}`, objectFit: "cover" }}
-            sizes="(max-width: 700px) 25vw, 275px"
-            loading="lazy"
-          />
+          <>
+            <Image
+              src={photo.src}
+              alt={photo.title ?? ""}
+              width={width}
+              height={height}
+              style={{
+                width: "100%",
+                height: "auto",
+                aspectRatio: `${width} / ${height}`,
+                objectFit: "cover",
+              }}
+              sizes="(max-width: 700px) 25vw, 275px"
+              loading="lazy"
+            />
+            <TileOverlay
+              title={photo.title ?? ""}
+              tags={photo.tags}
+              text={photo.description || photo.summary}
+            />
+          </>
         ),
       }}
       componentsProps={{
-        link: { target: "_blank", rel: "noopener" },
+        link: {
+          target: "_blank",
+          rel: "noopener",
+          onTouchStart: armLongPress,
+          onTouchEnd: releaseLongPress,
+          onTouchMove: cancelLongPress,
+          onTouchCancel: cancelLongPress,
+        },
       }}
     />
   );

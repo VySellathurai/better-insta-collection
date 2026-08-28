@@ -5,6 +5,9 @@
   --text: #e8e9ec;
   --text-dim: #9aa1ac;
   --accent: #6ea8fe;
+  --chip-bg: #232833;
+  --chip-active-bg: #6ea8fe;
+  --chip-active-text: #0f1115;
 }
 
 * {
@@ -38,36 +41,48 @@ header .subtitle {
   margin: 0 0 16px;
 }
 
-.grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 3px;
-}
-
-.tile {
-  position: relative;
-  aspect-ratio: 1 / 1;
-  overflow: hidden;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  display: block;
-}
-
-.tile img {
-  object-fit: cover;
-}
-
-.tile .fallback {
-  position: absolute;
-  inset: 0;
+.tags {
   display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 16px;
+}
+
+.tag-chip {
+  border: 1px solid var(--border);
+  background: var(--chip-bg);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  text-decoration: none;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  padding: 8px;
-  text-align: center;
-  font-size: 0.72rem;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.tag-chip .count {
   color: var(--text-dim);
-  line-height: 1.3;
+  font-size: 0.75rem;
+}
+
+.tag-chip.active {
+  background: var(--chip-active-bg);
+  color: var(--chip-active-text);
+  border-color: var(--chip-active-bg);
+}
+
+.tag-chip.active .count {
+  color: rgba(15, 17, 21, 0.65);
+}
+
+/* Grid tiles are now rendered by react-photo-album (see components/photo-album.tsx)
+ * — .grid/.tile rules superseded by its own react-photo-album/columns.css.
+ * Just give each cell a dark background so it doesn't flash white while its
+ * image loads. */
+.react-photo-album--photo {
+  background: var(--panel);
 }
 
 .empty {

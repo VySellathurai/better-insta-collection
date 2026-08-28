@@ -14,6 +14,7 @@ dependencies = [
 [project.scripts]
 reels-pipeline = "reels_pipeline.cli:main"
 reels-telegram = "reels_pipeline.telegram:main"
+reels-collections = "reels_pipeline.list_collections:main"
 
 [build-system]
 requires = ["hatchling"]

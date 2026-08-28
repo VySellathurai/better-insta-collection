@@ -9,6 +9,12 @@ LLM_MODEL     ?= qwen2.5:7b
 DATABASE_URL  ?= postgres://backoffice:changeme@localhost:5433/backoffice
 BACKOFFICE    ?= src/backoffice
 COLLECTIONS_STUDIO ?= src/collections-studio
+MEME_MUSEUM   ?= src/meme-museum
+MEME_MUSEUM_VAULT ?= $(PWD)/$(MEME_MUSEUM)/vault
+MEME_MUSEUM_DATABASE_URL ?= postgres://meme_museum:changeme@localhost:5434/meme_museum
+# Locked, not a user-overridable variable like COLLECTION above — mm-pipeline
+# must never be pointable at a different collection.
+MEME_MUSEUM_COLLECTION := Musée des Mêmes
 
 _cookies      = $(if $(COOKIES),--cookies $(COOKIES),)
 _whisper_model = $(if $(WHISPER_MODEL),--whisper-model $(WHISPER_MODEL),)
@@ -17,6 +23,7 @@ _collection   = $(if $(COLLECTION),--collection "$(COLLECTION)",)
 _llm_model    = $(if $(LLM_MODEL),--llm-model $(LLM_MODEL),)
 _npm          = npm --prefix $(BACKOFFICE) run
 _npm_cs       = npm --prefix $(COLLECTIONS_STUDIO) run
+_npm_mm       = npm --prefix $(MEME_MUSEUM) run
 
 .DEFAULT_GOAL := help
 
@@ -26,7 +33,10 @@ _npm_cs       = npm --prefix $(COLLECTIONS_STUDIO) run
         bo-install bo-env bo-images-link bo-setup \
         bo-db-up bo-db-down bo-db-generate bo-db-migrate \
         bo-dev bo-build bo-start bo-lint bo-typecheck bo-check \
-        cs-install cs-env cs-images-link cs-setup cs-dev cs-build cs-start cs-lint cs-typecheck cs-check
+        cs-install cs-env cs-images-link cs-setup cs-dev cs-build cs-start cs-lint cs-typecheck cs-check \
+        mm-install mm-env mm-images-link mm-setup mm-pipeline \
+        mm-db-up mm-db-down mm-db-generate mm-db-migrate \
+        mm-dev mm-build mm-start mm-lint mm-typecheck mm-check
 
 help:
 	@echo "Usage: make <target> [VAR=value ...]"
@@ -72,6 +82,21 @@ help:
 	@echo "  cs-typecheck    tsc --noEmit"
 	@echo "  cs-check        cs-lint + cs-typecheck"
 	@echo ""
+	@echo "Meme Museum (src/meme-museum — own Postgres + vault, grid locked to \"$(MEME_MUSEUM_COLLECTION)\")"
+	@echo "  mm-setup        First-time bootstrap: install, .env, images symlink, db up, migrate"
+	@echo "  mm-install      Install Node dependencies (npm)"
+	@echo "  mm-pipeline     Run the pipeline, locked to \"$(MEME_MUSEUM_COLLECTION)\"  [FILE=...] [COOKIES=firefox] [LIMIT=20] [DRY_RUN=1]"
+	@echo "  mm-db-up        Start Postgres (Docker), wait until healthy  (host port 5434)"
+	@echo "  mm-db-down      Stop Postgres"
+	@echo "  mm-db-generate  Generate a Drizzle migration from db/schema.ts"
+	@echo "  mm-db-migrate   Apply pending Drizzle migrations"
+	@echo "  mm-dev          Run the Next.js dev server (http://localhost:3200)"
+	@echo "  mm-build        Production build"
+	@echo "  mm-start        Run the production build (after mm-build)"
+	@echo "  mm-lint         eslint ."
+	@echo "  mm-typecheck    tsc --noEmit"
+	@echo "  mm-check        mm-lint + mm-typecheck"
+	@echo ""
 	@echo "Variables (defaults shown):"
 	@echo "  VAULT=$(VAULT)"
 	@echo "  WHISPER_MODEL=$(WHISPER_MODEL) (tiny | base | small | medium)"
@@ -79,6 +104,7 @@ help:
 	@echo "  DATABASE_URL=$(DATABASE_URL)"
 	@echo "  BACKOFFICE=$(BACKOFFICE)       Next.js/Postgres subproject path"
 	@echo "  COLLECTIONS_STUDIO=$(COLLECTIONS_STUDIO)  Next.js collection-picker subproject path"
+	@echo "  MEME_MUSEUM=$(MEME_MUSEUM)     Next.js/Postgres subproject path"
 
 # ── setup ────────────────────────────────────────────────────────────────────
 
@@ -112,6 +138,15 @@ endif
 
 collections:
 	uv run reels-collections $(if $(FILE),$(FILE),your_instagram_activity/saved/saved_collections.json)
+
+# Locked to $(MEME_MUSEUM_COLLECTION) — --vault/--collection/--database-url are
+# hardcoded, not driven by the generic VAULT/COLLECTION/DATABASE_URL above, so
+# this can never accidentally write into the wrong project's vault/database.
+mm-pipeline:
+	uv run reels-pipeline $(if $(FILE),$(FILE),your_instagram_activity/saved/saved_collections.json) \
+		--vault $(MEME_MUSEUM_VAULT) $(_cookies) $(_whisper_model) $(_limite) $(_llm_model) \
+		--collection "$(MEME_MUSEUM_COLLECTION)" --database-url $(MEME_MUSEUM_DATABASE_URL) \
+		$(if $(DRY_RUN),--dry-run,)
 
 telegram:
 	uv run reels-telegram --vault $(VAULT) $(_cookies) $(_whisper_model) $(_limite)
@@ -216,3 +251,66 @@ cs-typecheck:
 	$(_npm_cs) typecheck
 
 cs-check: cs-lint cs-typecheck
+
+# ── meme museum: setup ───────────────────────────────────────────────────────
+# Namespaced with an mm- prefix, same pattern as bo-/cs- above. Its own
+# Postgres (own docker-compose, own port 5434) and its own pipeline vault —
+# fully independent of the other two subprojects.
+
+mm-install:
+	npm --prefix $(MEME_MUSEUM) install
+
+mm-env:
+	@test -f $(MEME_MUSEUM)/.env || cp $(MEME_MUSEUM)/.env.example $(MEME_MUSEUM)/.env
+	@echo "$(MEME_MUSEUM)/.env ready"
+
+mm-images-link:
+	@if [ ! -L $(MEME_MUSEUM)/public/images ]; then \
+		rm -rf $(MEME_MUSEUM)/public/images; \
+		mkdir -p $(MEME_MUSEUM)/public; \
+		ln -s ../vault/images $(MEME_MUSEUM)/public/images; \
+		echo "created $(MEME_MUSEUM)/public/images -> vault/images"; \
+	fi
+
+mm-setup: mm-install mm-env mm-images-link mm-db-up mm-db-generate mm-db-migrate
+	@echo "Meme Museum ready — run 'make mm-dev' and open http://localhost:3200"
+	@echo "Nothing to seed: run 'make mm-pipeline COOKIES=firefox' to populate Postgres directly."
+
+# ── meme museum: database ────────────────────────────────────────────────────
+
+mm-db-up:
+	$(_npm_mm) db:up
+	@cd $(MEME_MUSEUM) && for i in $$(seq 1 60); do \
+		docker compose ps postgres --format json | grep -q '"Health":"healthy"' && exit 0; \
+		sleep 1; \
+	done; \
+	echo "Postgres did not become healthy within 60s — check 'docker compose logs postgres'" >&2; exit 1
+	@echo "Postgres healthy"
+
+mm-db-down:
+	$(_npm_mm) db:down
+
+mm-db-generate:
+	$(_npm_mm) db:generate
+
+mm-db-migrate:
+	$(_npm_mm) db:migrate
+
+# ── meme museum: app ─────────────────────────────────────────────────────────
+
+mm-dev:
+	$(_npm_mm) dev
+
+mm-build:
+	$(_npm_mm) build
+
+mm-start:
+	$(_npm_mm) start
+
+mm-lint:
+	$(_npm_mm) lint
+
+mm-typecheck:
+	$(_npm_mm) typecheck
+
+mm-check: mm-lint mm-typecheck

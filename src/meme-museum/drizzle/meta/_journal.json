@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1787940012500,
+      "tag": "0000_milky_iron_fist",
+      "breakpoints": true
+    }
+  ]
+}

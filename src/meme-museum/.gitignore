@@ -1,0 +1,9 @@
+node_modules/
+.next/
+*.tsbuildinfo
+next-env.d.ts
+.env
+
+# Own dedicated pipeline vault (downloaded audio/video temp files + extracted
+# frames) — project-local per the "self-contained" decision, not committed.
+vault/

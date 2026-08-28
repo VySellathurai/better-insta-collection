@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { DEFAULT_LIMIT, MAX_LIMIT, type JobState } from "@/types/job";
 
 import { getCollectionUrls } from "./collections";
-import { COLLECT_COOKIES, REPO_ROOT, VAULT_DIR } from "./paths";
+import { COLLECT_COOKIES, DATABASE_URL, REPO_ROOT, VAULT_DIR } from "./paths";
 
 const MAX_LOG_LINES = 500;
 // DEFAULT_LIMIT / MAX_LIMIT live in types/job.ts so the client form can import
@@ -15,9 +15,6 @@ const MAX_LOG_LINES = 500;
 // real safety boundary against tripping Instagram's rate-limiting/detection —
 // always re-enforced below, no matter what the form (or a direct Server Action
 // call) sends.
-const DIGEST_BATCH = 100; // generous: digest is 100% local/Ollama, carries none of
-// collect's Instagram rate-limit risk — also sweeps up any older not-yet-digested
-// fiches already sitting in this collection.
 
 type Store = { state: JobState; running: boolean };
 
@@ -93,16 +90,18 @@ async function runJob(collectionName: string, limit: number): Promise<void> {
     tmpFile = join(tmpDir, "urls.txt");
     writeFileSync(tmpFile, urls.join("\n"), "utf-8");
 
-    store.state.phase = "collecting";
+    store.state.phase = "running";
     pushLog(
-      `Collecting up to ${limit} new video(s) from "${collectionName}" ` +
+      `Running the pipeline on up to ${limit} new link(s) from "${collectionName}" ` +
         `(${urls.length} URLs in this collection).`,
     );
+    // One subprocess covers all 4 pipeline steps (collect+transcribe, extract
+    // images, enrich, publish to Postgres) — see src/reels_pipeline/.
     await runChild(
       "uv",
       [
         "run",
-        "reels-collect",
+        "reels-pipeline",
         tmpFile,
         "--vault",
         VAULT_DIR,
@@ -112,23 +111,8 @@ async function runJob(collectionName: string, limit: number): Promise<void> {
         COLLECT_COOKIES,
         "--limite",
         String(limit),
-      ],
-      REPO_ROOT,
-    );
-
-    store.state.phase = "digesting";
-    pushLog(`Collect done. Digesting "${collectionName}".`);
-    await runChild(
-      "uv",
-      [
-        "run",
-        "reels-digest",
-        "--vault",
-        VAULT_DIR,
-        "--collection",
-        collectionName,
-        "--batch",
-        String(DIGEST_BATCH),
+        "--database-url",
+        DATABASE_URL,
       ],
       REPO_ROOT,
     );

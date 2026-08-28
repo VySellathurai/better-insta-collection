@@ -1,4 +1,4 @@
-import type { DisplayPost } from "@/lib/vault-results";
+import type { DisplayPost } from "@/lib/db";
 
 import { ImageStrip } from "./image-strip";
 

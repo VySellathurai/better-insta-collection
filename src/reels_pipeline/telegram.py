@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-telegram.py — récupère les URLs envoyées au bot Telegram et déclenche Collect.
+telegram.py — récupère les URLs envoyées au bot Telegram et déclenche le pipeline.
 
 Fonctionnement :
   1. lit TELEGRAM_TOKEN et TELEGRAM_CHAT_ID dans .env (à la racine du Vault)
   2. récupère les messages non lus via l'API Telegram
   3. extrait les URLs Instagram
-  4. passe le fichier temporaire à reels-collect
+  4. passe le fichier temporaire à reels-pipeline
   5. marque les messages comme lus (via l'offset) pour ne pas les retraiter
 
 Usage :
@@ -130,18 +130,18 @@ def recuperer_urls(token: str, chat_id: str, offset: int) -> tuple[list[str], in
     return urls, new_offset
 
 
-def _resoudre_reels_collect() -> str:
-    """Chemin du script console reels-collect installé dans le même venv que
+def _resoudre_reels_pipeline() -> str:
+    """Chemin du script console reels-pipeline installé dans le même venv que
     l'interpréteur courant (sys.executable)."""
-    candidat = Path(sys.executable).parent / "reels-collect"
+    candidat = Path(sys.executable).parent / "reels-pipeline"
     if candidat.exists():
         return str(candidat)
-    return "reels-collect"  # repli : espère le trouver sur le PATH
+    return "reels-pipeline"  # repli : espère le trouver sur le PATH
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Récupère les URLs Telegram et déclenche Collect sur le Vault."
+        description="Récupère les URLs Telegram et déclenche le pipeline."
     )
     parser.add_argument("--vault", default=str(Path.home() / "Vault"))
     parser.add_argument(
@@ -170,7 +170,7 @@ def main() -> None:
         sauver_offset(vault, new_offset)
         return
 
-    print(f"{len(urls)} URL(s) trouvée(s) — lancement de Collect.")
+    print(f"{len(urls)} URL(s) trouvée(s) — lancement du pipeline.")
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
         f.write("\n".join(urls))
@@ -178,7 +178,7 @@ def main() -> None:
 
     try:
         cmd = [
-            _resoudre_reels_collect(),
+            _resoudre_reels_pipeline(),
             tmp_path,
             "--vault",
             str(vault),

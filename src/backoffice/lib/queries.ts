@@ -118,7 +118,11 @@ export async function getAllPostsWithDetails(
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-  const baseQuery = db.select().from(posts).where(whereClause).orderBy(asc(posts.sortOrder));
+  // Posts are written directly (and asynchronously) by the Python pipeline as
+  // they're processed — there's no ordered index.md to derive a position
+  // from anymore, so newest-processed-first is the natural order for a
+  // continuously-growing gallery.
+  const baseQuery = db.select().from(posts).where(whereClause).orderBy(desc(posts.processedAt));
   const rowsQuery =
     pageSize !== undefined ? baseQuery.limit(pageSize).offset(((page ?? 1) - 1) * pageSize) : baseQuery;
 

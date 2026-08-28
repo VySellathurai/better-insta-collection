@@ -2,8 +2,10 @@ VAULT         ?= $(PWD)/Vault
 COOKIES       ?=
 WHISPER_MODEL ?= small
 FILE          ?=
+LIMIT         ?=
+LIMITE        ?= $(LIMIT)
 LLM_MODEL     ?= qwen2.5:7b
-BATCH         ?= 25
+DATABASE_URL  ?= postgres://backoffice:changeme@localhost:5433/backoffice
 BACKOFFICE    ?= src/backoffice
 COLLECTIONS_STUDIO ?= src/collections-studio
 
@@ -18,9 +20,9 @@ _npm_cs       = npm --prefix $(COLLECTIONS_STUDIO) run
 
 .PHONY: help \
         install lint format typecheck check pre-commit \
-        collect digest digest-dry publish graph telegram \
+        pipeline telegram \
         bo-install bo-env bo-images-link bo-setup \
-        bo-db-up bo-db-down bo-db-generate bo-db-migrate bo-db-seed bo-refresh \
+        bo-db-up bo-db-down bo-db-generate bo-db-migrate \
         bo-dev bo-build bo-start bo-lint bo-typecheck bo-check \
         cs-install cs-env cs-images-link cs-setup cs-dev cs-build cs-start cs-lint cs-typecheck cs-check
 
@@ -37,23 +39,18 @@ help:
 	@echo "  typecheck       mypy --strict on all scripts"
 	@echo "  check           lint + typecheck (same as CI)"
 	@echo ""
-	@echo "Pipeline (src/reels_vault — collect, digest, publish)"
-	@echo "  collect         Collect links     FILE=links.txt [COOKIES=firefox] [LIMITE=20]"
-	@echo "  digest          Digest raw fiches [LLM_MODEL=qwen2.5:7b] [BATCH=25]"
-	@echo "  digest-dry      Preview digest    (no writes)"
-	@echo "  graph           Build graph       [VAULT=./Vault]"
-	@echo "  publish         Generate gallery  (reads Vault/index.md, writes gallery.html)"
-	@echo "  telegram        Poll Telegram     [VAULT=./Vault] [COOKIES=firefox] [LIMITE=20]"
+	@echo "Pipeline (src/reels_vault — collect+transcribe, images, enrich, publish to Postgres)"
+	@echo "  pipeline        Run the pipeline  FILE=links.txt [COOKIES=firefox] [LIMIT=20]"
+	@echo "                  [LLM_MODEL=qwen2.5:7b] [DATABASE_URL=postgres://...] [DRY_RUN=1]"
+	@echo "  telegram        Poll Telegram     [VAULT=./Vault] [COOKIES=firefox] [LIMIT=20]"
 	@echo ""
-	@echo "Backoffice (src/backoffice — Next.js + Postgres, reads the same Vault)"
-	@echo "  bo-setup        First-time bootstrap: install, .env, images symlink, db up, migrate, seed"
+	@echo "Backoffice (src/backoffice — Next.js + Postgres; the pipeline writes here directly)"
+	@echo "  bo-setup        First-time bootstrap: install, .env, images symlink, db up, migrate"
 	@echo "  bo-install      Install Node dependencies (npm)"
 	@echo "  bo-db-up        Start Postgres (Docker), wait until healthy"
 	@echo "  bo-db-down      Stop Postgres"
 	@echo "  bo-db-generate  Generate a Drizzle migration from db/schema.ts"
 	@echo "  bo-db-migrate   Apply pending Drizzle migrations"
-	@echo "  bo-db-seed      Reload Vault data into Postgres (safe to re-run)"
-	@echo "  bo-refresh      publish + bo-db-seed — resync gallery.html and Postgres together"
 	@echo "  bo-dev          Run the Next.js dev server (http://localhost:3000)"
 	@echo "  bo-build        Production build"
 	@echo "  bo-start        Run the production build (after bo-build)"
@@ -76,7 +73,7 @@ help:
 	@echo "  VAULT=$(VAULT)"
 	@echo "  WHISPER_MODEL=$(WHISPER_MODEL) (tiny | base | small | medium)"
 	@echo "  LLM_MODEL=$(LLM_MODEL)         (qwen2.5:7b | qwen2.5:3b | mistral:7b)"
-	@echo "  BATCH=$(BATCH)                 fiches par session"
+	@echo "  DATABASE_URL=$(DATABASE_URL)"
 	@echo "  BACKOFFICE=$(BACKOFFICE)       Next.js/Postgres subproject path"
 	@echo "  COLLECTIONS_STUDIO=$(COLLECTIONS_STUDIO)  Next.js collection-picker subproject path"
 
@@ -103,23 +100,12 @@ check: lint typecheck
 
 # ── pipeline ─────────────────────────────────────────────────────────────────
 
-collect:
+pipeline:
 ifndef FILE
-	$(error FILE is required — usage: make collect FILE=links.txt)
+	$(error FILE is required — usage: make pipeline FILE=links.txt)
 endif
-	uv run reels-collect $(FILE) --vault $(VAULT) $(_cookies) $(_whisper_model) $(_limite)
-
-digest:
-	uv run reels-digest --vault $(VAULT) $(_llm_model) --batch $(BATCH)
-
-digest-dry:
-	uv run reels-digest --vault $(VAULT) $(_llm_model) --batch $(BATCH) --dry-run
-
-graph:
-	uv run reels-graph --vault $(VAULT)
-
-publish:
-	uv run reels-publish --vault $(VAULT)
+	uv run reels-pipeline $(FILE) --vault $(VAULT) $(_cookies) $(_whisper_model) $(_limite) \
+		$(_llm_model) --database-url $(DATABASE_URL) $(if $(DRY_RUN),--dry-run,)
 
 telegram:
 	uv run reels-telegram --vault $(VAULT) $(_cookies) $(_whisper_model) $(_limite)
@@ -143,8 +129,9 @@ bo-images-link:
 		echo "created $(BACKOFFICE)/public/images -> Vault/images"; \
 	fi
 
-bo-setup: bo-install bo-env bo-images-link bo-db-up bo-db-generate bo-db-migrate bo-db-seed
+bo-setup: bo-install bo-env bo-images-link bo-db-up bo-db-generate bo-db-migrate
 	@echo "Backoffice ready — run 'make bo-dev' and open http://localhost:3000"
+	@echo "Nothing to seed: run 'make pipeline FILE=links.txt' to populate Postgres directly."
 
 # ── backoffice: database ─────────────────────────────────────────────────────
 
@@ -165,11 +152,6 @@ bo-db-generate:
 
 bo-db-migrate:
 	$(_npm) db:migrate
-
-bo-db-seed:
-	$(_npm) db:seed
-
-bo-refresh: publish bo-db-seed
 
 # ── backoffice: app ──────────────────────────────────────────────────────────
 

@@ -10,3 +10,11 @@ export const SAVED_COLLECTIONS_PATH = resolve(
   process.env.SAVED_COLLECTIONS_PATH ?? "../../your_instagram_activity/saved/saved_collections.json",
 );
 export const COLLECT_COOKIES = process.env.COLLECT_COOKIES || "firefox";
+
+// Must point at the same Postgres instance/database as ../backoffice/.env's
+// DATABASE_URL — reels-pipeline writes there, this app only ever reads it.
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  throw new Error("DATABASE_URL is not set — copy .env.example to .env and fill it in.");
+}
+export const DATABASE_URL = databaseUrl;

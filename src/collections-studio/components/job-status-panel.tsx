@@ -56,7 +56,7 @@ export function JobStatusPanel({ collection }: { collection: string }) {
     return () => clearInterval(id);
   }, [poll]);
 
-  const running = job.phase === "queued" || job.phase === "collecting" || job.phase === "digesting";
+  const running = job.phase === "queued" || job.phase === "running";
   const runningOther = running && job.collection !== collection;
 
   const handleSubmit = () => {

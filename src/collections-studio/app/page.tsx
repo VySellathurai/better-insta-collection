@@ -1,5 +1,5 @@
 import { getCollectionUrls, listCollections } from "@/lib/collections";
-import { getCollectionResults } from "@/lib/vault-results";
+import { getCollectionResults } from "@/lib/db";
 import { CollectionPicker } from "@/components/collection-picker";
 import { JobStatusPanel } from "@/components/job-status-panel";
 import { ResultCard } from "@/components/result-card";
@@ -20,7 +20,7 @@ export default async function Page({
   const known = new Set(collections.map((c) => c.name));
   const selected = requested && known.has(requested) ? requested : (collections[0]?.name ?? null);
 
-  const results = selected ? getCollectionResults(selected) : [];
+  const results = selected ? await getCollectionResults(selected) : [];
   const totalInCollection = selected ? getCollectionUrls(selected).length : 0;
 
   return (

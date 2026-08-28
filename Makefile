@@ -4,6 +4,7 @@ WHISPER_MODEL ?= small
 FILE          ?=
 LIMIT         ?=
 LIMITE        ?= $(LIMIT)
+COLLECTION    ?=
 LLM_MODEL     ?= qwen2.5:7b
 DATABASE_URL  ?= postgres://backoffice:changeme@localhost:5433/backoffice
 BACKOFFICE    ?= src/backoffice
@@ -12,6 +13,7 @@ COLLECTIONS_STUDIO ?= src/collections-studio
 _cookies      = $(if $(COOKIES),--cookies $(COOKIES),)
 _whisper_model = $(if $(WHISPER_MODEL),--whisper-model $(WHISPER_MODEL),)
 _limite       = $(if $(LIMITE),--limite $(LIMITE),)
+_collection   = $(if $(COLLECTION),--collection "$(COLLECTION)",)
 _llm_model    = $(if $(LLM_MODEL),--llm-model $(LLM_MODEL),)
 _npm          = npm --prefix $(BACKOFFICE) run
 _npm_cs       = npm --prefix $(COLLECTIONS_STUDIO) run
@@ -20,7 +22,7 @@ _npm_cs       = npm --prefix $(COLLECTIONS_STUDIO) run
 
 .PHONY: help \
         install lint format typecheck check pre-commit \
-        pipeline telegram \
+        pipeline collections telegram \
         bo-install bo-env bo-images-link bo-setup \
         bo-db-up bo-db-down bo-db-generate bo-db-migrate \
         bo-dev bo-build bo-start bo-lint bo-typecheck bo-check \
@@ -39,9 +41,10 @@ help:
 	@echo "  typecheck       mypy --strict on all scripts"
 	@echo "  check           lint + typecheck (same as CI)"
 	@echo ""
-	@echo "Pipeline (src/reels_vault — collect+transcribe, images, enrich, publish to Postgres)"
+	@echo "Pipeline (src/reels_pipeline — collect+transcribe, images, enrich, publish to Postgres)"
 	@echo "  pipeline        Run the pipeline  FILE=links.txt [COOKIES=firefox] [LIMIT=20]"
-	@echo "                  [LLM_MODEL=qwen2.5:7b] [DATABASE_URL=postgres://...] [DRY_RUN=1]"
+	@echo "                  [COLLECTION=Comprendre] [LLM_MODEL=qwen2.5:7b] [DATABASE_URL=postgres://...] [DRY_RUN=1]"
+	@echo "  collections     List collection names + link counts  [FILE=saved_collections.json]"
 	@echo "  telegram        Poll Telegram     [VAULT=./Vault] [COOKIES=firefox] [LIMIT=20]"
 	@echo ""
 	@echo "Backoffice (src/backoffice — Next.js + Postgres; the pipeline writes here directly)"
@@ -105,7 +108,10 @@ ifndef FILE
 	$(error FILE is required — usage: make pipeline FILE=links.txt)
 endif
 	uv run reels-pipeline $(FILE) --vault $(VAULT) $(_cookies) $(_whisper_model) $(_limite) \
-		$(_llm_model) --database-url $(DATABASE_URL) $(if $(DRY_RUN),--dry-run,)
+		$(_llm_model) $(_collection) --database-url $(DATABASE_URL) $(if $(DRY_RUN),--dry-run,)
+
+collections:
+	uv run reels-collections $(if $(FILE),$(FILE),your_instagram_activity/saved/saved_collections.json)
 
 telegram:
 	uv run reels-telegram --vault $(VAULT) $(_cookies) $(_whisper_model) $(_limite)

@@ -193,6 +193,8 @@ uv run reels-pipeline "CHEMIN/VERS/saved_posts.json" --vault "./Vault" --cookies
 
 Le premier lancement télécharge le modèle Whisper (500 Mo, une seule fois) — plusieurs minutes de silence, c'est normal. `ollama serve` doit tourner en arrière-plan (lance-le une fois, il continue ensuite tout seul).
 
+**Se limiter à une seule collection** (`saved_collections.json`, pas `saved_posts.json`) : `--collection "Comprendre"` filtre les liens sur cette collection au lieu de tous les traiter — `reels-collections` (ou `make collections`) liste les noms disponibles et leur nombre de liens.
+
 > **Terminal te demande l'accès à un dossier (Téléchargements, Documents…) ?** C'est la protection « Accès complet au disque » / permissions par dossier de macOS. Autorise l'accès, sinon `reels-pipeline` ne pourra ni lire ton export ni écrire dans `Vault`. Tu peux gérer ça a posteriori dans **Réglages Système → Confidentialité et sécurité → Fichiers et dossiers**.
 
 Ouvre ensuite le backoffice (Étape 5) et **lis le résumé généré pour une des premières vidéos**. C'est le moment décisif :
@@ -489,7 +491,8 @@ Voir `schema.md` pour le détail du flux complet (diagrammes, modèle de donnée
 ## Commandes utiles
 
 - **`make install`** — installe les dépendances Python
-- **`make pipeline FILE=liens.txt [COOKIES=firefox] [LIMIT=20] [DRY_RUN=1]`** — lance le pipeline sur un fichier de liens
+- **`make pipeline FILE=liens.txt [COOKIES=firefox] [LIMIT=20] [COLLECTION=Comprendre] [DRY_RUN=1]`** — lance le pipeline sur un fichier de liens
+- **`make collections [FILE=saved_collections.json]`** — liste les collections disponibles et leur nombre de liens
 - **`make telegram`** — lance le bot Telegram (équivalent de `inbox.sh`)
 - **`make check`** — lint + typecheck (identique à la CI)
 

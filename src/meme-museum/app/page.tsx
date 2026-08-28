@@ -1,16 +1,37 @@
-import { PostTile } from "@/components/post-tile";
-import { getPostsPage, PAGE_SIZE } from "@/lib/queries";
+import Link from "next/link";
+
+import { PhotoAlbum } from "@/components/photo-album";
+import { TagHeader } from "@/components/tag-header";
+import { getPostsPage, getThemeCounts, PAGE_SIZE } from "@/lib/queries";
 
 export default async function HomePage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ page?: string; theme?: string }>;
 }) {
-  const { page: rawPage } = await searchParams;
+  const { page: rawPage, theme } = await searchParams;
   const page = Math.max(1, Number.parseInt(rawPage ?? "1", 10) || 1);
 
-  const { items, total } = await getPostsPage(page);
+  const [{ items, total }, tags] = await Promise.all([
+    getPostsPage(page, theme),
+    getThemeCounts(),
+  ]);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  // Mirrors real Instagram: a post never shows as a tile until it has media,
+  // so posts without a collected cover image yet are simply left out of the
+  // album rather than rendered as a differently-shaped placeholder tile.
+  const photos = items
+    .filter((post) => post.cover !== null)
+    .map((post) => ({
+      id: post.id,
+      src: `/images/${post.cover}`,
+      title: post.title,
+      href: post.sourceUrl,
+    }));
+
+  // Preserves the active tag filter across page navigation.
+  const pageHref = (n: number) => (theme ? `/?page=${n}&theme=${encodeURIComponent(theme)}` : `/?page=${n}`);
 
   return (
     <div className="wrap">
@@ -22,26 +43,35 @@ export default async function HomePage({
         </p>
       </header>
 
-      {items.length === 0 ? (
+      <TagHeader tags={tags} active={theme ?? null} />
+
+      {total === 0 ? (
         <p className="empty">
-          Aucun post pour l&apos;instant — lance <code>make mm-pipeline</code> pour en collecter.
+          {theme ? (
+            <>
+              Aucun post avec ce tag. <Link href="/">Voir tous les posts</Link>.
+            </>
+          ) : (
+            <>
+              Aucun post pour l&apos;instant — lance <code>make mm-pipeline</code> pour en
+              collecter.
+            </>
+          )}
         </p>
+      ) : photos.length === 0 ? (
+        <p className="empty">Ces posts n&apos;ont pas encore d&apos;image collectée.</p>
       ) : (
-        <div className="grid">
-          {items.map((post) => (
-            <PostTile key={post.id} post={post} />
-          ))}
-        </div>
+        <PhotoAlbum photos={photos} />
       )}
 
       <div className="pager">
         {page > 1 ? (
-          <a href={`/?page=${page - 1}`}>&larr; précédent</a>
+          <a href={pageHref(page - 1)}>&larr; précédent</a>
         ) : (
           <span className="disabled">&larr; précédent</span>
         )}
         {page < totalPages ? (
-          <a href={`/?page=${page + 1}`}>suivant &rarr;</a>
+          <a href={pageHref(page + 1)}>suivant &rarr;</a>
         ) : (
           <span className="disabled">suivant &rarr;</span>
         )}

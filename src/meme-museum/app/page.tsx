@@ -64,7 +64,7 @@ export default async function HomePage({
       ) : photos.length === 0 ? (
         <p className="empty">Ces posts n&apos;ont pas encore d&apos;image collectée.</p>
       ) : (
-        <PhotoAlbum photos={photos} />
+        <PhotoAlbum photos={photos} allThemes={tags} />
       )}
 
       <div className="pager">

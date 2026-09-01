@@ -177,3 +177,199 @@ a.react-photo-album--photo[data-peek="true"] .tile-overlay {
   color: var(--text-dim);
   opacity: 0.4;
 }
+
+/* ── Tag editor ──────────────────────────────────────────────────────────────
+ * Pencil trigger sits in the tile's top-right corner, revealed by the exact
+ * same triggers as .tile-overlay (hover / focus-within / long-press peek /
+ * its own open state). The popover panel (.te-popover) is portaled to
+ * document.body — see components/tag-editor.tsx. */
+.tag-edit-trigger {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(15, 17, 21, 0.72);
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+
+@media (hover: hover) {
+  a.react-photo-album--photo:hover .tag-edit-trigger {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+a.react-photo-album--photo:focus-within .tag-edit-trigger,
+a.react-photo-album--photo[data-peek="true"] .tag-edit-trigger,
+.tag-edit-trigger.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.tag-edit-trigger:hover {
+  background: rgba(15, 17, 21, 0.9);
+}
+
+.te-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.te-popover {
+  position: fixed;
+  z-index: 1000;
+  width: 260px;
+  max-width: calc(100vw - 16px);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+.te-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.te-empty {
+  color: var(--text-dim);
+}
+
+.te-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--chip-bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 8px;
+}
+
+.te-chip button {
+  all: unset;
+  cursor: pointer;
+  color: var(--text-dim);
+  padding: 0 2px;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.te-chip button:hover {
+  color: var(--text);
+}
+
+.te-input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: var(--text);
+  font: inherit;
+}
+
+.te-input:focus {
+  outline: 1px solid var(--accent);
+}
+
+.te-listbox {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 160px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.te-option {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.te-option.is-active {
+  background: var(--chip-bg);
+}
+
+.te-option .count {
+  color: var(--text-dim);
+  font-size: 0.72rem;
+}
+
+.te-option--create {
+  color: var(--accent);
+}
+
+.te-error {
+  margin: 0;
+  color: #ff6b6b;
+  font-size: 0.72rem;
+}
+
+.te-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.te-save {
+  background: var(--accent);
+  color: var(--chip-active-text);
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.te-cancel {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.te-save:disabled,
+.te-cancel:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+@media (max-width: 560px) {
+  .te-popover--sheet {
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    top: auto !important;
+    width: 100%;
+    max-width: 100%;
+    border-radius: 12px 12px 0 0;
+  }
+}

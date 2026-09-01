@@ -4,7 +4,10 @@ import Image from "next/image";
 import { ColumnsPhotoAlbum } from "react-photo-album";
 import "react-photo-album/columns.css";
 
+import { TagEditor } from "./tag-editor";
 import { TileOverlay } from "./tile-overlay";
+
+export type EditableTheme = { slug: string; name: string; count: number };
 
 export type AlbumPhoto = {
   id: string;
@@ -63,13 +66,20 @@ function releaseLongPress(e: React.TouchEvent<HTMLAnchorElement>): void {
 // we never read from disk). ColumnsPhotoAlbum then balances 4 equal-width
 // square columns exactly like Instagram's grid, instead of the masonry/
 // justified look this library normally produces from real aspect ratios.
-export function PhotoAlbum({ photos }: { photos: AlbumPhoto[] }) {
+export function PhotoAlbum({
+  photos,
+  allThemes,
+}: {
+  photos: AlbumPhoto[];
+  allThemes: EditableTheme[];
+}) {
   return (
     <ColumnsPhotoAlbum
       columns={4}
       spacing={3}
       photos={photos.map((p) => ({
         key: p.id,
+        id: p.id,
         src: p.src,
         width: 1,
         height: 1,
@@ -111,6 +121,12 @@ export function PhotoAlbum({ photos }: { photos: AlbumPhoto[] }) {
               text={photo.description || photo.summary}
             />
           </>
+        ),
+        // Separate slot from `image` so the pencil trigger + its portaled
+        // popover aren't tangled with the image markup. Still rendered inside
+        // the tile's <a> — TagEditor stops event propagation accordingly.
+        extras: (_props, { photo }) => (
+          <TagEditor postId={photo.id} tagNames={photo.tags} allThemes={allThemes} />
         ),
       }}
       componentsProps={{

@@ -29,7 +29,7 @@ _npm_mm       = npm --prefix $(MEME_MUSEUM) run
 
 .PHONY: help \
         install lint format typecheck check pre-commit \
-        pipeline collections telegram \
+        pipeline collections telegram api jobs job \
         bo-install bo-env bo-images-link bo-setup \
         bo-db-up bo-db-down bo-db-generate bo-db-migrate \
         bo-dev bo-build bo-start bo-lint bo-typecheck bo-check \
@@ -56,6 +56,9 @@ help:
 	@echo "                  [COLLECTION=Comprendre] [LLM_MODEL=qwen2.5:7b] [DATABASE_URL=postgres://...] [DRY_RUN=1]"
 	@echo "  collections     List collection names + link counts  [FILE=saved_collections.json]"
 	@echo "  telegram        Poll Telegram     [VAULT=./Vault] [COOKIES=firefox] [LIMIT=20]"
+	@echo "  api             Serve the FastAPI trigger (POST /content/ingestor)  [API_HOST=127.0.0.1] [API_PORT=8000]"
+	@echo "  jobs            List API jobs (needs 'make api' running)"
+	@echo "  job             Tail a job's log  JOB=<id> [TAIL=40] [FOLLOW=1]"
 	@echo ""
 	@echo "Backoffice (src/backoffice — Next.js + Postgres; the pipeline writes here directly)"
 	@echo "  bo-setup        First-time bootstrap: install, .env, images symlink, db up, migrate"
@@ -150,6 +153,35 @@ mm-pipeline:
 
 telegram:
 	uv run reels-telegram --vault $(VAULT) $(_cookies) $(_whisper_model) $(_limite)
+
+# HTTP trigger for the pipeline — POST /content/ingestor does the same job as
+# `reels-pipeline` (an empty body replays the locked mm-pipeline config). Binds
+# to localhost, no auth: local-tool only, same as the rest of the repo.
+API_HOST ?= 127.0.0.1
+API_PORT ?= 8000
+API_BASE ?= http://$(API_HOST):$(API_PORT)
+TAIL     ?= 40
+api:
+	REELS_API_HOST=$(API_HOST) REELS_API_PORT=$(API_PORT) uv run reels-api
+
+# List API jobs, newest first (needs 'make api' running).
+jobs:
+	@curl -s "$(API_BASE)/content/ingestor" | python3 -m json.tool
+
+# Tail a job's log (needs 'make api' running).
+#   make job JOB=<id> [TAIL=40] [FOLLOW=1] [API_PORT=8000]
+job:
+ifndef JOB
+	$(error JOB is required — usage: make job JOB=<id>  (list ids with 'make jobs'))
+endif
+	@while :; do \
+		[ -n "$(FOLLOW)" ] && { clear 2>/dev/null || true; }; \
+		curl -s "$(API_BASE)/content/ingestor/$(JOB)/logs?tail=$(TAIL)"; echo; \
+		[ -n "$(FOLLOW)" ] || break; \
+		curl -s "$(API_BASE)/content/ingestor/$(JOB)" \
+			| grep -q '"phase": *"\(running\|queued\)"' || break; \
+		sleep 2; \
+	done
 
 # ── backoffice: setup ────────────────────────────────────────────────────────
 # Namespaced with a bo- prefix so its npm/docker world stays visibly separate

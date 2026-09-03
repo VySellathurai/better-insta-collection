@@ -467,6 +467,7 @@ Ouvre **http://localhost:3100** — choisis une collection, clique, regarde les 
 | **3· enrich** | `reels-pipeline` | Ollama (`qwen2.5:7b`) | Tags + résumé |
 | **4· publish** | `reels-pipeline` | asyncpg | Upsert asynchrone dans Postgres |
 | **Telegram** *(déclencheur)* | `reels-telegram` | API Telegram | Récupère les URLs, appelle le pipeline |
+| **API** *(déclencheur)* | `reels-api` / `make api` | FastAPI | `POST /content/ingestor` lance le pipeline en tâche de fond, suivi par id de job |
 | **Backoffice** | `make bo-setup` / `make bo-dev` | Next.js, Postgres, Docker | Page web + API JSON en lecture seule |
 | **Collections Studio** *(bonus)* | `make cs-setup` / `make cs-dev` | Next.js | Pipeline scopé à une collection, UI dédiée |
 
@@ -474,12 +475,88 @@ Ouvre **http://localhost:3100** — choisis une collection, clique, regarde les 
 
 Voir `schema.md` pour le détail du flux complet (diagrammes, modèle de données Postgres).
 
+## L'API HTTP (`reels-api`) — exemples
+
+`make api` (ou `uv run reels-api`) sert l'API sur `http://127.0.0.1:8000`. Elle se
+lie à localhost et n'a **pas d'authentification** : outil local, comme le reste du
+dépôt. Chaque `POST /content/ingestor` lance le pipeline en tâche de fond (un seul
+job à la fois) et renvoie un id à interroger.
+
+**`limit` est obligatoire** dans tous les cas : une requête sans `limit` est
+rejetée en **422**, pour qu'aucun run ne parte sans borne (un run non borné =
+collection entière = quota Instagram cramé). Un champ mal orthographié est lui
+aussi rejeté en 422 plutôt que silencieusement ignoré.
+
+```bash
+# Sonde de vie
+curl -s localhost:8000/health
+# → {"status":"ok"}
+
+# 1) Traiter une liste d'URLs (test : 1 lien, sans écrire en base)
+curl -s -XPOST localhost:8000/content/ingestor \
+  -H 'content-type: application/json' \
+  -d '{"urls":["https://www.instagram.com/reel/ABC123/"],"limit":1,"dry_run":true}'
+# → 202 {"id":"<job_id>","phase":"queued", ...}
+
+# 2) Traiter une liste avec cookies + base explicite
+curl -s -XPOST localhost:8000/content/ingestor \
+  -H 'content-type: application/json' \
+  -d '{
+        "urls": ["https://www.instagram.com/reel/AAA/", "https://www.instagram.com/p/BBB/"],
+        "cookies": "firefox",
+        "limit": 20,
+        "database_url": "postgres://backoffice:changeme@localhost:5433/backoffice"
+      }'
+
+# 3) Filtrer une collection depuis un export saved_collections.json
+curl -s -XPOST localhost:8000/content/ingestor \
+  -H 'content-type: application/json' \
+  -d '{
+        "source_file": "your_instagram_activity/saved/saved_collections.json",
+        "collection": "Comprendre",
+        "cookies": "firefox",
+        "limit": 10
+      }'
+
+# 4) Ni urls ni source_file → config verrouillée du mm-pipeline
+#    (collection « Musée des Mêmes », vault + base de src/meme-museum)
+curl -s -XPOST localhost:8000/content/ingestor \
+  -H 'content-type: application/json' \
+  -d '{"limit": 10, "cookies": "firefox"}'
+
+# Suivre un job (phase : queued → running → done | error)
+curl -s localhost:8000/content/ingestor/<job_id>
+curl -s "localhost:8000/content/ingestor/<job_id>?tail=20"        # état JSON, 20 dernières lignes
+curl -s "localhost:8000/content/ingestor/<job_id>/logs?tail=20"   # journal en texte brut
+
+# Lister les jobs (plus récent d'abord)
+curl -s localhost:8000/content/ingestor
+```
+
+Côté shell, deux raccourcis (serveur `make api` lancé) :
+
+```bash
+make jobs                          # liste les jobs
+make job JOB=<job_id>               # 40 dernières lignes du journal
+make job JOB=<job_id> FOLLOW=1      # rafraîchit toutes les 2 s jusqu'à la fin
+```
+
+Un `POST` pendant qu'un job tourne renvoie **409**. Les jobs sont en mémoire :
+ils disparaissent au redémarrage du serveur.
+
+**Doc de l'API** (générée par FastAPI, serveur lancé) :
+
+- Swagger UI — `http://127.0.0.1:8000/docs` (essai des requêtes en direct)
+- ReDoc — `http://127.0.0.1:8000/redoc`
+- Schéma OpenAPI — `http://127.0.0.1:8000/openapi.json`
+
 ## Les fichiers
 
 - **`src/reels_pipeline/collect.py`** / **`extract_images.py`** / **`enrich.py`** — les 3 premières étapes
 - **`src/reels_pipeline/publish.py`** — étape 4 : upsert asynchrone dans Postgres
 - **`src/reels_pipeline/cli.py`** — l'orchestrateur async, point d'entrée `reels-pipeline`
 - **`src/reels_pipeline/telegram.py`** — récupère les URLs depuis le bot Telegram et appelle le pipeline
+- **`src/reels_pipeline/api/`** — API HTTP (FastAPI) : `POST /content/ingestor` déclenche le pipeline en tâche de fond (script `reels-api`, `make api`)
 - **`src/reels_pipeline/_ollama.py`** / **`_naming.py`** — code partagé entre les étapes
 - **`src/backoffice/`** — backoffice (Next.js + Postgres) ; voir `src/backoffice/README.md` pour le détail
 - **`src/collections-studio/`** — pipeline scopé à une collection (bonus) ; voir `src/collections-studio/README.md`
@@ -494,6 +571,7 @@ Voir `schema.md` pour le détail du flux complet (diagrammes, modèle de donnée
 - **`make pipeline FILE=liens.txt [COOKIES=firefox] [LIMIT=20] [COLLECTION=Comprendre] [DRY_RUN=1]`** — lance le pipeline sur un fichier de liens
 - **`make collections [FILE=saved_collections.json]`** — liste les collections disponibles et leur nombre de liens
 - **`make telegram`** — lance le bot Telegram (équivalent de `inbox.sh`)
+- **`make api [API_PORT=8000]`** — sert l'API FastAPI ; `POST /content/ingestor` (`limit` obligatoire ; `{"limit":N}` seul = config mm-pipeline verrouillée), `make job JOB=<id>` pour suivre le job
 - **`make check`** — lint + typecheck (identique à la CI)
 
 Backoffice (`src/backoffice/`) :

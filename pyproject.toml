@@ -6,8 +6,10 @@ requires-python = ">=3.11"
 dependencies = [
     "asyncpg>=0.29",
     "faster-whisper>=1.0",
+    "fastapi>=0.115",
     "gallery-dl>=1.27",
     "requests>=2.32",
+    "uvicorn>=0.30",
     "yt-dlp>=2024.1",
 ]
 
@@ -15,6 +17,7 @@ dependencies = [
 reels-pipeline = "reels_pipeline.cli:main"
 reels-telegram = "reels_pipeline.telegram:main"
 reels-collections = "reels_pipeline.list_collections:main"
+reels-api = "reels_pipeline.api.main:main"
 
 [build-system]
 requires = ["hatchling"]
